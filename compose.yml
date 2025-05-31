@@ -1,0 +1,73 @@
+services:
+
+  temporal:
+    image: temporalio/auto-setup:1.27.2
+    hostname: temporal
+    networks:
+      - reddit-post-notifier
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB: postgres12
+      DBNAME: temporal
+      VISIBILITY_DBNAME: temporal_visibility
+      DB_PORT: 5432
+      POSTGRES_SEEDS: postgres
+      POSTGRES_USER: temporal
+      POSTGRES_PWD: temporal
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_CLI_ADDRESS: temporal:7233
+      DEFAULT_NAMESPACE: reddit-post-notifier
+      DEFAULT_NAMESPACE_RETENTION: 7d
+      DYNAMIC_CONFIG_FILE_PATH: config/dynamicconfig/development-sql.yaml
+      LOG_LEVEL: error
+    volumes:
+      - ./deployments/docker/temporal/dynamicconfig:/etc/temporal/config/dynamicconfig
+    healthcheck:
+      test: CMD-SHELL tctl --address temporal:7233 workflow list
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 5s
+    ports:
+      - '7233:7233'
+
+  temporal-ui:
+    image: temporalio/ui:v2.37.3
+    hostname: temporal-ui
+    networks:
+      - reddit-post-notifier
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_HIDE_LOGS: true
+    ports:
+      - '8181:8080'
+
+  postgres:
+    image: postgres:17.4-alpine3.21
+    hostname: postgres
+    networks:
+      - reddit-post-notifier
+    environment:
+      POSTGRES_DB: main
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - ./deployments/docker/postgres/initdb.d:/docker-entrypoint-initdb.d
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: pg_isready -U postgres
+      interval: 10s
+      timeout: 10s
+      retries: 10
+    ports:
+      - '5432:5432'
+
+volumes:
+  postgres-data:
+
+networks:
+  reddit-post-notifier:
+    driver: bridge
