@@ -6,6 +6,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 type Handle struct {
@@ -22,6 +23,14 @@ func NewHandle(ctx context.Context, config *config.Persistence) (*Handle, error)
 
 	pool, err := pgxpool.NewWithConfig(ctx, conf)
 	if err != nil {
+		return nil, err
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, time.Minute)
+	defer cancel()
+
+	if err = pool.Ping(ctx); err != nil {
+		pool.Close()
 		return nil, err
 	}
 

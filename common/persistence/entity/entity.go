@@ -1,20 +1,30 @@
 package entity
 
-import "github.com/google/uuid"
-
 type (
+	Subreddit struct {
+		ID                int64  `json:"id"`
+		Name              string `json:"name"`
+		IncludeNSFW       bool   `json:"include_nsfw"`
+		Sort              string `json:"sort"`
+		RestrictSubreddit bool   `json:"restrict_subreddit"`
+		After             string `json:"after,omitzero"`
+	}
+
 	LoadConfigurationAndStateInput struct {
-		ID uuid.UUID `json:"id"`
+		ID int64 `json:"id"`
 	}
 
 	LoadConfigurationAndStateOutput struct {
-		Keyword string `json:"keyword"`
+		Keyword    string       `json:"keyword"`
+		Subreddits []*Subreddit `json:"subreddits,omitempty"`
 	}
 
+	UpdateStateValue struct {
+		SubredditConfigurationID int64  `json:"subreddit_configuration_id"`
+		Before                   string `json:"before"`
+	}
 	UpdateStateInput struct {
-		ConfigurationID uuid.UUID `json:"configuration_id"`
-		Subreddit       string    `json:"subreddit"`
-		Before          string    `json:"before"`
+		Values []*UpdateStateValue `json:"values"`
 	}
 
 	UpdateStateOutput struct {
