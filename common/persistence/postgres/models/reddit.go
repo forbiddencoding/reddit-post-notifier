@@ -13,6 +13,8 @@ type (
 		Sort              string         `db:"sort"`
 		RestrictSubreddit bool           `db:"restrict_subreddit"`
 		Keyword           string         `db:"keyword"`
+		FetchMode         string         `db:"fetch_mode"`
+		FetchLimit        sql.NullInt64  `db:"fetch_limit"`
 		Before            sql.NullString `db:"before"`
 	}
 )

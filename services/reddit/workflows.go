@@ -1,78 +1,174 @@
 package reddit
 
 import (
-	"errors"
 	"fmt"
+	"github.com/forbiddencoding/reddit-post-notifier/common/reddit"
+	"go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 	"time"
 )
 
 type (
-	PostsWorkflowInput struct {
-		Keyword    string   `json:"keyword"`
-		Subreddits []string `json:"subreddits,omitempty"`
+	DigestWorkflowInput struct {
+		ID int64 `json:"id"`
 	}
 
-	PostsWorkflowOutput struct {
-		Before string `json:"before"`
+	DigestWorkflowOutput struct {
 	}
 )
 
-func PostsWorkflow(ctx workflow.Context, in *PostsWorkflowInput) (*PostsWorkflowOutput, error) {
+func DigestWorkflow(ctx workflow.Context, in *DigestWorkflowInput) (*DigestWorkflowOutput, error) {
 	logger := workflow.GetLogger(ctx)
-	logger.Info("PostsWorkflow started")
-
-	var out PostsWorkflowOutput
-	if workflow.HasLastCompletionResult(ctx) {
-		if err := workflow.GetLastCompletionResult(ctx, &out); err != nil {
-			logger.Error("Failed to get last completion result", "error", err)
-			return nil, err
-		}
-	}
+	logger.Info("DigestWorkflow started")
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: time.Minute,
+		StartToCloseTimeout: 10 * time.Second,
+		RetryPolicy: &temporal.RetryPolicy{
+			InitialInterval:    5 * time.Second,
+			BackoffCoefficient: 2.0,
+			MaximumInterval:    30 * time.Second,
+			MaximumAttempts:    3,
+		},
 	})
 
-	maxRetries := 5
-	retryCount := 0
-
-	for retryCount < maxRetries {
-		var result GetPostsOutput
-		err := workflow.ExecuteActivity(ctx, (&Activities{}).GetPosts, &GetPostsInput{
-			Keyword: in.Keyword,
-			After:   out.Before,
-		}).Get(ctx, &result)
-
-		if err == nil {
-			out.Before = result.Before
-			break
-		}
-
-		var appErr *temporal.ApplicationError
-		if errors.As(err, &appErr) {
-			if !appErr.NonRetryable() {
-				retryCount++
-				logger.Warn("Rate limit exceeded, retrying", "attempt", retryCount, "error", err)
-				_ = workflow.Sleep(ctx, appErr.NextRetryDelay())
-				continue
-			}
-
-			return nil, appErr
-		}
-
+	var configuration LoadConfigurationAndStateOutput
+	if err := workflow.ExecuteActivity(
+		ctx,
+		LoadConfigurationAndStateActivityName,
+		&LoadConfigurationAndStateInput{
+			ID: in.ID,
+		},
+	).Get(ctx, &configuration); err != nil {
+		logger.Error("Failed to load configuration and state", "error", err)
 		return nil, err
 	}
 
-	if retryCount == maxRetries {
-		return nil, fmt.Errorf("exceeded max rate limited retries")
+	var (
+		subreddits = make([]*Subreddit, 0, len(configuration.Subreddits))
+		posts      []reddit.Post
+	)
+
+	for i := 0; i < len(configuration.Subreddits); i++ {
+		subreddit := configuration.Subreddits[i]
+
+		childCtx := workflow.WithChildOptions(ctx, workflow.ChildWorkflowOptions{
+			TaskQueue:         "reddit",
+			WorkflowID:        fmt.Sprintf("reddit_post_workflow::%s::%s", configuration.Keyword, subreddit.Name),
+			ParentClosePolicy: enums.PARENT_CLOSE_POLICY_TERMINATE,
+			RetryPolicy: &temporal.RetryPolicy{
+				MaximumAttempts:    5,
+				InitialInterval:    time.Second,
+				BackoffCoefficient: 2.0,
+				MaximumInterval:    100 * time.Second,
+			},
+		})
+
+		var result PostWorkflowOutput
+		err := workflow.ExecuteChildWorkflow(childCtx, PostWorkflow, &PostWorkflowInput{
+			Keyword:   configuration.Keyword,
+			Subreddit: subreddit,
+		}).Get(ctx, &result)
+		if err != nil {
+			logger.Error("Failed to execute PostWorkflow", "error", err, "subreddit", subreddit.Name)
+			return nil, err
+		}
+
+		if len(result.Posts) > 0 {
+			posts = append(posts, result.Posts...)
+			subreddits = append(subreddits, &Subreddit{
+				SubredditID: subreddit.SubredditID,
+				Before:      result.Subreddit.Before,
+			})
+		}
 	}
 
-	if err := workflow.ExecuteActivity(ctx, (&Activities{}).SendNotification, &SendNotificationInput{}).Get(ctx, nil); err != nil {
+	if len(posts) == 0 {
+		logger.Info("No new posts found for the given keyword and subreddits")
+		return nil, nil
+	}
+
+	if err := workflow.ExecuteActivity(ctx, SendNotificationActivityName, &SendNotificationInput{}).Get(ctx, nil); err != nil {
 		logger.Error("Failed to send notification", "error", err)
 		return nil, err
 	}
 
-	return &PostsWorkflowOutput{}, nil
+	if err := workflow.ExecuteActivity(ctx, UpdateStateActivityName, &UpdateStateInput{
+		Subreddits: subreddits,
+	}).Get(ctx, nil); err != nil {
+		logger.Error("Failed to update state", "error", err)
+		return nil, err
+	}
+
+	return nil, nil
+}
+
+type (
+	PostWorkflowInput struct {
+		Keyword   string
+		Subreddit *Subreddit `json:"subreddit"`
+		Posts     []reddit.Post
+	}
+
+	PostWorkflowOutput struct {
+		Subreddit *Subreddit    `json:"subreddit"`
+		Posts     []reddit.Post `json:"posts"`
+	}
+)
+
+func PostWorkflow(ctx workflow.Context, in *PostWorkflowInput) (*PostWorkflowOutput, error) {
+	logger := workflow.GetLogger(ctx)
+	logger.Info("PostsWorkflow started")
+
+	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: time.Minute,
+		RetryPolicy: &temporal.RetryPolicy{
+			InitialInterval:    10 * time.Second,
+			BackoffCoefficient: 2.0,
+			MaximumInterval:    2 * time.Minute,
+			MaximumAttempts:    5,
+		},
+	})
+
+	var result GetPostsOutput
+	err := workflow.ExecuteActivity(ctx, GetPostsActivityName, &GetPostsInput{
+		Keyword:   in.Keyword,
+		Subreddit: in.Subreddit,
+	}).Get(ctx, &result)
+	if err != nil {
+		logger.Error("Failed to get posts", "error", err, "subreddit", in.Subreddit.Name)
+		return nil, err
+	}
+
+	input := PostWorkflowInput{
+		Keyword:   in.Keyword,
+		Subreddit: in.Subreddit,
+		Posts:     in.Posts,
+	}
+
+	if len(result.Posts) > 0 {
+		input.Posts = append(in.Posts, result.Posts...)
+		input.Subreddit.Before = result.Before
+	} else {
+		return &PostWorkflowOutput{
+			Subreddit: in.Subreddit,
+			Posts:     in.Posts,
+		}, nil
+	}
+
+	if len(in.Posts) >= 1_000 {
+		logger.Info("Reached system limit of number of posts")
+		return &PostWorkflowOutput{
+			Subreddit: input.Subreddit,
+			Posts:     input.Posts,
+		}, nil
+	}
+
+	if in.Subreddit.FetchMode == "limit" && len(input.Posts) >= int(in.Subreddit.FetchLimit) {
+		return &PostWorkflowOutput{
+			Subreddit: input.Subreddit,
+			Posts:     input.Posts,
+		}, nil
+	}
+	return nil, workflow.NewContinueAsNewError(ctx, PostWorkflow, &input)
 }

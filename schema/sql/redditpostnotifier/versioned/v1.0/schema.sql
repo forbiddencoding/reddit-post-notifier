@@ -17,6 +17,8 @@ CREATE TABLE IF NOT EXISTS subreddit_configuration
     include_nsfw       BOOLEAN   NOT NULL DEFAULT FALSE,
     sort               TEXT      NOT NULL DEFAULT 'new',
     restrict_subreddit BOOLEAN   NOT NULL DEFAULT TRUE,
+    fetch_mode         TEXT      NOT NULL DEFAULT 'limit',
+    fetch_limit        INTEGER            DEFAULT 100,
     created_at         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     last_updated_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
