@@ -72,8 +72,6 @@ type (
 		IncludeNSFW       bool   `json:"include_nsfw"`
 		Sort              string `json:"sort"`
 		RestrictSubreddit bool   `json:"restrict_subreddit"`
-		FetchMode         string `json:"fetch_mode"`
-		FetchLimit        int64  `json:"fetch_limit,omitzero"`
 		Before            string `json:"before,omitzero"`
 	}
 

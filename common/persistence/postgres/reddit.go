@@ -18,8 +18,6 @@ SELECT
 	sc.include_nsfw AS include_nsfw,
 	sc.sort AS sort,
 	sc.restrict_subreddit AS restrict_subreddit,
-	sc.fetch_mode AS fetch_mode,
-	sc.fetch_limit AS fetch_limit,
 	scs.before AS before
 FROM
     	configuration c
@@ -65,15 +63,10 @@ func (h *Handle) LoadConfigurationAndState(ctx context.Context, in *entity.LoadC
 			IncludeNSFW:       m.IncludeNSFW,
 			Sort:              m.Sort,
 			RestrictSubreddit: m.RestrictSubreddit,
-			FetchMode:         m.FetchMode,
 		}
 
 		if m.Before.Valid {
 			sr.After = m.Before.String
-		}
-
-		if m.FetchLimit.Valid {
-			sr.FetchLimit = m.FetchLimit.Int64
 		}
 
 		subreddits = append(subreddits, sr)

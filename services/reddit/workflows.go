@@ -53,9 +53,10 @@ func DigestWorkflow(ctx workflow.Context, in *DigestWorkflowInput) (*DigestWorkf
 		subreddit := configuration.Subreddits[i]
 
 		childCtx := workflow.WithChildOptions(ctx, workflow.ChildWorkflowOptions{
-			TaskQueue:         "reddit",
-			WorkflowID:        fmt.Sprintf("reddit_post_workflow::%s::%s", configuration.Keyword, subreddit.Name),
-			ParentClosePolicy: enums.PARENT_CLOSE_POLICY_TERMINATE,
+			TaskQueue:                "reddit",
+			WorkflowID:               fmt.Sprintf("reddit_post_workflow::%s::%s", configuration.Keyword, subreddit.Name),
+			ParentClosePolicy:        enums.PARENT_CLOSE_POLICY_TERMINATE,
+			WorkflowExecutionTimeout: 2 * time.Minute,
 			RetryPolicy: &temporal.RetryPolicy{
 				MaximumAttempts:    5,
 				InitialInterval:    time.Second,
@@ -156,19 +157,5 @@ func PostWorkflow(ctx workflow.Context, in *PostWorkflowInput) (*PostWorkflowOut
 		}, nil
 	}
 
-	if len(in.Posts) >= 1_000 {
-		logger.Info("Reached system limit of number of posts")
-		return &PostWorkflowOutput{
-			Subreddit: input.Subreddit,
-			Posts:     input.Posts,
-		}, nil
-	}
-
-	if in.Subreddit.FetchMode == "limit" && len(input.Posts) >= int(in.Subreddit.FetchLimit) {
-		return &PostWorkflowOutput{
-			Subreddit: input.Subreddit,
-			Posts:     input.Posts,
-		}, nil
-	}
 	return nil, workflow.NewContinueAsNewError(ctx, PostWorkflow, &input)
 }

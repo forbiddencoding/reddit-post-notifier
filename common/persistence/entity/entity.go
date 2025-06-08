@@ -8,8 +8,6 @@ type (
 		Sort              string `json:"sort"`
 		RestrictSubreddit bool   `json:"restrict_subreddit"`
 		After             string `json:"after,omitzero"`
-		FetchMode         string `json:"fetch_mode"`           // "limit" or "catch-up"
-		FetchLimit        int64  `json:"fetch_limit,omitzero"` // Only used if FetchMode is "limit"
 	}
 
 	LoadConfigurationAndStateInput struct {
