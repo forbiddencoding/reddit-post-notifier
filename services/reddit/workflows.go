@@ -84,12 +84,19 @@ func DigestWorkflow(ctx workflow.Context, in *DigestWorkflowInput) (*DigestWorkf
 		}
 	}
 
-	if len(posts) == 0 {
-		logger.Info("No new posts found for the given keyword and subreddits")
-		return nil, nil
-	}
+	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: time.Second,
+		RetryPolicy: &temporal.RetryPolicy{
+			InitialInterval:    5 * time.Second,
+			BackoffCoefficient: 2.0,
+			MaximumInterval:    30 * time.Second,
+			MaximumAttempts:    3,
+		},
+	})
 
-	if err := workflow.ExecuteActivity(ctx, SendNotificationActivityName, &SendNotificationInput{}).Get(ctx, nil); err != nil {
+	if err := workflow.ExecuteActivity(ctx, SendNotificationActivityName, &SendNotificationInput{
+		Posts: posts,
+	}).Get(ctx, nil); err != nil {
 		logger.Error("Failed to send notification", "error", err)
 		return nil, err
 	}

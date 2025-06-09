@@ -5,25 +5,34 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/forbiddencoding/reddit-post-notifier/common/config"
+	"github.com/forbiddencoding/reddit-post-notifier/common/mail"
 	"github.com/forbiddencoding/reddit-post-notifier/common/persistence"
 	"github.com/forbiddencoding/reddit-post-notifier/common/persistence/entity"
 	"github.com/forbiddencoding/reddit-post-notifier/common/reddit"
 	"go.temporal.io/sdk/temporal"
 	"net/http"
+	"strings"
 )
 
 type Activities struct {
 	client      *reddit.Client
+	mailer      mail.Mailer
 	persistence persistence.Persistence
 }
 
-func NewActivities(ctx context.Context, persistence persistence.Persistence, conf *config.Config) *Activities {
+func NewActivities(ctx context.Context, persistence persistence.Persistence, conf *config.Config) (*Activities, error) {
 	client := reddit.New(ctx, conf.Reddit.ClientID, conf.Reddit.ClientSecret, conf.Reddit.UserAgent)
+
+	mailer, err := mail.New(ctx, &conf.Mailer)
+	if err != nil {
+		return nil, err
+	}
 
 	return &Activities{
 		client:      client,
+		mailer:      mailer,
 		persistence: persistence,
-	}
+	}, nil
 }
 
 type (
@@ -172,6 +181,7 @@ func (a *Activities) GetPosts(ctx context.Context, in *GetPostsInput) (*GetPosts
 
 type (
 	SendNotificationInput struct {
+		Posts []reddit.Post `json:"posts"`
 	}
 
 	SendNotificationOutput struct {
@@ -181,6 +191,21 @@ type (
 const SendNotificationActivityName = "send_notification"
 
 func (a *Activities) SendNotification(ctx context.Context, in *SendNotificationInput) (*SendNotificationOutput, error) {
+	sb := strings.Builder{}
+
+	for _, post := range in.Posts {
+		sb.WriteString(fmt.Sprintf("Title: %s\nURL: %s\n\n", post.Title, post.URL))
+	}
+
+	if err := a.mailer.SendMail(
+		ctx,
+		[]string{""},
+		"New Reddit Posts Notification",
+		sb.String(),
+	); err != nil {
+		return nil, fmt.Errorf("failed to send mail: %w", err)
+	}
+
 	return nil, nil
 }
 

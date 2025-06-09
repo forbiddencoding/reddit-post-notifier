@@ -17,7 +17,10 @@ func RunWorker(ctx context.Context, client client.Client, persistence persistenc
 	w := worker.New(client, "reddit", options)
 	worker.EnableVerboseLogging(false)
 
-	activities := NewActivities(ctx, persistence, conf)
+	activities, err := NewActivities(ctx, persistence, conf)
+	if err != nil {
+		return err
+	}
 
 	w.RegisterWorkflowWithOptions(DigestWorkflow, workflow.RegisterOptions{Name: "digest"})
 	w.RegisterActivityWithOptions(activities.LoadConfigurationAndState, activity.RegisterOptions{Name: LoadConfigurationAndStateActivityName})
