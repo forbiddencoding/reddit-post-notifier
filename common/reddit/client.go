@@ -44,6 +44,12 @@ type (
 		CreatedUTC float64 `json:"created_utc"`
 		Subreddit  string  `json:"subreddit"`
 		Name       string  `json:"name"`
+		NSFW       bool    `json:"over_18"`
+		Spoiler    bool    `json:"spoiler"`
+		Ups        int     `json:"ups"`
+		Downs      int     `json:"downs"`
+		Thumbnail  string  `json:"thumbnail"` // "self" or a URL to an image
+		Permalink  string  `json:"permalink"`
 	}
 
 	Response struct {

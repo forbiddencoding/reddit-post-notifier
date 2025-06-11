@@ -25,10 +25,10 @@ func DigestWorkflow(ctx workflow.Context, in *DigestWorkflowInput) (*DigestWorkf
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 10 * time.Second,
 		RetryPolicy: &temporal.RetryPolicy{
-			InitialInterval:    5 * time.Second,
+			InitialInterval:    10 * time.Second,
 			BackoffCoefficient: 2.0,
-			MaximumInterval:    30 * time.Second,
-			MaximumAttempts:    3,
+			MaximumInterval:    2 * time.Minute,
+			MaximumAttempts:    5,
 		},
 	})
 
@@ -85,7 +85,7 @@ func DigestWorkflow(ctx workflow.Context, in *DigestWorkflowInput) (*DigestWorkf
 	}
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: time.Second,
+		StartToCloseTimeout: time.Minute,
 		RetryPolicy: &temporal.RetryPolicy{
 			InitialInterval:    5 * time.Second,
 			BackoffCoefficient: 2.0,

@@ -1,6 +1,7 @@
 package reddit
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -9,9 +10,14 @@ import (
 	"github.com/forbiddencoding/reddit-post-notifier/common/persistence"
 	"github.com/forbiddencoding/reddit-post-notifier/common/persistence/entity"
 	"github.com/forbiddencoding/reddit-post-notifier/common/reddit"
+	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/temporal"
+	"html"
+	"html/template"
 	"net/http"
+	"net/url"
 	"strings"
+	"time"
 )
 
 type Activities struct {
@@ -23,6 +29,7 @@ type Activities struct {
 func NewActivities(ctx context.Context, persistence persistence.Persistence, conf *config.Config) (*Activities, error) {
 	client := reddit.New(ctx, conf.Reddit.ClientID, conf.Reddit.ClientSecret, conf.Reddit.UserAgent)
 
+	// TODO: maybe use something more generic here or more configurable, i.e. mailer per configuration or a different sink, i.e. discord
 	mailer, err := mail.New(ctx, &conf.Mailer)
 	if err != nil {
 		return nil, err
@@ -98,6 +105,9 @@ type (
 const GetPostsActivityName = "get_posts"
 
 func (a *Activities) GetPosts(ctx context.Context, in *GetPostsInput) (*GetPostsOutput, error) {
+	logger := activity.GetLogger(ctx)
+	logger.Info("GetPosts started", "subreddit", in.Subreddit.Name, "keyword", in.Keyword)
+
 	url := fmt.Sprintf("https://oauth.reddit.com/r/%s/search", in.Subreddit.Name)
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
@@ -139,6 +149,7 @@ func (a *Activities) GetPosts(ctx context.Context, in *GetPostsInput) (*GetPosts
 
 	switch resp.StatusCode {
 	case http.StatusTooManyRequests:
+		logger.Info("GetPosts hit rate limit")
 		// Reddit does not return any header or body when the rate limit is reached.
 		// Therefore, the below code sadly does not work as intended.
 		//reset, err := strconv.ParseFloat(resp.Header.Get("X-RateLimit-Reset"), 64)
@@ -191,17 +202,32 @@ type (
 const SendNotificationActivityName = "send_notification"
 
 func (a *Activities) SendNotification(ctx context.Context, in *SendNotificationInput) (*SendNotificationOutput, error) {
-	sb := strings.Builder{}
-
-	for _, post := range in.Posts {
-		sb.WriteString(fmt.Sprintf("Title: %s\nURL: %s\n\n", post.Title, post.URL))
+	// TODO: refactor / remove this from here
+	tmpl, err := template.New("email").ParseFiles("templates/index.html", "templates/post.html")
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse email template: %w", err)
 	}
 
-	if err := a.mailer.SendMail(
+	var postViews []PostView
+	for _, p := range in.Posts {
+		postViews = append(postViews, NewPostView(p))
+	}
+
+	data := map[string]any{
+		"Title": "New Reddit Posts Notification",
+		"Posts": postViews,
+	}
+
+	var body bytes.Buffer
+	if err = tmpl.ExecuteTemplate(&body, "email", data); err != nil {
+		return nil, fmt.Errorf("failed to execute email template: %w", err)
+	}
+
+	if err = a.mailer.SendMail(
 		ctx,
 		[]string{""},
 		"New Reddit Posts Notification",
-		sb.String(),
+		body.String(),
 	); err != nil {
 		return nil, fmt.Errorf("failed to send mail: %w", err)
 	}
@@ -236,4 +262,71 @@ func (a *Activities) UpdateState(ctx context.Context, in *UpdateStateInput) (*Up
 	}
 
 	return nil, nil
+}
+
+type PostView struct {
+	ID         string
+	Title      string
+	URL        string
+	Subreddit  string
+	NSFW       bool
+	Spoiler    bool
+	Ups        int
+	Downs      int
+	Thumbnail  string
+	CreatedStr string
+	Permalink  string
+}
+
+func FixThumbnailURL(raw string) string {
+	if strings.HasPrefix(raw, "https://www.reddit.com/media?url=") {
+		parsed, err := url.Parse(raw)
+		if err == nil {
+			decoded := parsed.Query().Get("url")
+			if decoded != "" {
+				return decoded
+			}
+		}
+	}
+
+	raw = html.UnescapeString(raw)
+
+	if strings.HasPrefix(raw, "http://") {
+		raw = "https://" + strings.TrimPrefix(raw, "http://")
+	}
+
+	return raw
+}
+
+func IsValidImageURL(u string) bool {
+	u = strings.ToLower(u)
+	return strings.HasSuffix(u, ".jpg") ||
+		strings.HasSuffix(u, ".jpeg") ||
+		strings.HasSuffix(u, ".png") ||
+		strings.HasSuffix(u, ".gif") ||
+		strings.HasPrefix(u, "https://i.redd.it/")
+}
+
+func NewPostView(p reddit.Post) PostView {
+	thumb := FixThumbnailURL(p.Thumbnail)
+	if !IsValidImageURL(thumb) {
+		thumb = "" // discard invalid thumbnails
+	}
+
+	createdTime := time.Unix(int64(p.CreatedUTC), 0).UTC()
+	createdFormatted := createdTime.Format("Jan 2, 2006 15:04 MST")
+
+	return PostView{
+		ID:         p.ID,
+		Title:      p.Title,
+		URL:        p.URL,
+		Subreddit:  p.Subreddit,
+		NSFW:       p.NSFW,
+		Spoiler:    p.Spoiler,
+		Ups:        p.Ups,
+		Downs:      p.Downs,
+		Thumbnail:  thumb,
+		CreatedStr: createdFormatted,
+		Permalink:  fmt.Sprintf("https://www.reddit.com%s", p.Permalink),
+	}
 }
