@@ -1,6 +1,11 @@
 package entity
 
 type (
+	Recipient struct {
+		Type  string `json:"type"`
+		Value string `json:"value"`
+	}
+
 	Subreddit struct {
 		ID                int64  `json:"id"`
 		Name              string `json:"name"`
@@ -16,6 +21,7 @@ type (
 
 	LoadConfigurationAndStateOutput struct {
 		Keyword    string       `json:"keyword"`
+		Recipients []*Recipient `json:"recipients"`
 		Subreddits []*Subreddit `json:"subreddits,omitempty"`
 	}
 

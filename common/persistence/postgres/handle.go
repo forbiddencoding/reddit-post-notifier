@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"github.com/forbiddencoding/reddit-post-notifier/common/config"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"sync"
@@ -10,7 +11,7 @@ import (
 )
 
 type Handle struct {
-	db      atomic.Pointer[pgxpool.Pool]
+	dbPtr   atomic.Pointer[pgxpool.Pool]
 	running atomic.Bool
 	mu      sync.Mutex
 }
@@ -36,7 +37,7 @@ func NewHandle(ctx context.Context, config *config.Persistence) (*Handle, error)
 
 	handle := &Handle{}
 
-	handle.db.Store(pool)
+	handle.dbPtr.Store(pool)
 	handle.running.Store(true)
 
 	return handle, nil
@@ -48,10 +49,18 @@ func (h *Handle) Close(ctx context.Context) error {
 
 	if h.running.Load() {
 		h.running.Swap(false)
-		db := h.db.Swap(nil)
+		db := h.dbPtr.Swap(nil)
 		if db != nil {
 			db.Close()
 		}
 	}
 	return nil
+}
+
+func (h *Handle) db() (*pgxpool.Pool, error) {
+	if db := h.dbPtr.Load(); db != nil {
+		return db, nil
+	}
+
+	return nil, errors.New("no usable database connection found")
 }

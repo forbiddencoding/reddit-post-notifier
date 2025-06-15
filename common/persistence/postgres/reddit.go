@@ -20,7 +20,7 @@ SELECT
 	sc.restrict_subreddit AS restrict_subreddit,
 	scs.before AS before
 FROM
-    	configuration c
+    configuration c
 JOIN
 	subreddit_configuration sc ON c.id = sc.configuration_id
 LEFT JOIN
