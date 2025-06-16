@@ -18,19 +18,27 @@ SELECT
 	sc.include_nsfw AS include_nsfw,
 	sc.sort AS sort,
 	sc.restrict_subreddit AS restrict_subreddit,
-	scs.before AS before
+	scs.before AS before,
+	r.id AS recipient_id,
+	r.type AS type,
+	r.value AS value
 FROM
     configuration c
 JOIN
 	subreddit_configuration sc ON c.id = sc.configuration_id
 LEFT JOIN
 	subreddit_configuration_state scs ON sc.id = scs.subreddit_configuration_id
+LEFT JOIN
+    recipients r ON c.id = r.configuration_id
 WHERE
     	c.id = @id;
 `
 
 func (h *Handle) LoadConfigurationAndState(ctx context.Context, in *entity.LoadConfigurationAndStateInput) (*entity.LoadConfigurationAndStateOutput, error) {
-	db := h.db.Load()
+	db, err := h.db()
+	if err != nil {
+		return nil, err
+	}
 
 	args := pgx.NamedArgs{
 		"id": in.ID,
@@ -51,10 +59,11 @@ func (h *Handle) LoadConfigurationAndState(ctx context.Context, in *entity.LoadC
 		return &entity.LoadConfigurationAndStateOutput{}, nil
 	}
 
-	result := &entity.LoadConfigurationAndStateOutput{
-		Keyword: dbModels[0].Keyword,
-	}
-	subreddits := make([]*entity.Subreddit, 0, len(dbModels))
+	var (
+		subreddits   []*entity.Subreddit
+		recipientSet = make(map[int64]struct{})
+		recipients   []*entity.Recipient
+	)
 
 	for _, m := range dbModels {
 		sr := &entity.Subreddit{
@@ -70,11 +79,24 @@ func (h *Handle) LoadConfigurationAndState(ctx context.Context, in *entity.LoadC
 		}
 
 		subreddits = append(subreddits, sr)
+
+		if m.RecipientID.Valid {
+			if _, ok := recipientSet[m.RecipientID.Int64]; !ok {
+				recipients = append(recipients, &entity.Recipient{
+					ID:    m.RecipientID.Int64,
+					Type:  m.Type,
+					Value: m.Value,
+				})
+				recipientSet[m.RecipientID.Int64] = struct{}{}
+			}
+		}
 	}
 
-	result.Subreddits = subreddits
-
-	return result, nil
+	return &entity.LoadConfigurationAndStateOutput{
+		Keyword:    dbModels[0].Keyword,
+		Recipients: recipients,
+		Subreddits: subreddits,
+	}, nil
 }
 
 const updateStateQuery = `
@@ -84,7 +106,10 @@ SET before = EXCLUDED.before, last_updated_at = CURRENT_TIMESTAMP;
 `
 
 func (h *Handle) UpdateState(ctx context.Context, in *entity.UpdateStateInput) (*entity.UpdateStateOutput, error) {
-	db := h.db.Load()
+	db, err := h.db()
+	if err != nil {
+		return nil, err
+	}
 
 	batch := &pgx.Batch{}
 
@@ -97,16 +122,16 @@ func (h *Handle) UpdateState(ctx context.Context, in *entity.UpdateStateInput) (
 		_ = br.Close()
 	}()
 
-	var err error
+	var errs error
 
 	for _, v := range in.Values {
 		if _, err = br.Exec(); err != nil {
-			errors.Join(err, fmt.Errorf("failed to update state for subreddit configuration ID %d: %w", v.SubredditConfigurationID, err))
+			errors.Join(errs, fmt.Errorf("failed to update state for subreddit configuration ID %d: %w", v.SubredditConfigurationID, err))
 		}
 	}
 
-	if err != nil {
-		return nil, fmt.Errorf("failed to update state: %w", err)
+	if errs != nil {
+		return nil, fmt.Errorf("failed to update state: %w", errs)
 	}
 
 	return nil, nil

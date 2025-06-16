@@ -12,5 +12,8 @@ type (
 		RestrictSubreddit bool           `db:"restrict_subreddit"`
 		Keyword           string         `db:"keyword"`
 		Before            sql.NullString `db:"before"`
+		RecipientID       sql.NullInt64  `db:"recipient_id"`
+		Type              string         `db:"type"`
+		Value             string         `db:"value"`
 	}
 )

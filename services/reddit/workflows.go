@@ -56,7 +56,7 @@ func DigestWorkflow(ctx workflow.Context, in *DigestWorkflowInput) (*DigestWorkf
 			TaskQueue:                "reddit",
 			WorkflowID:               fmt.Sprintf("reddit_post_workflow::%s::%s", configuration.Keyword, subreddit.Name),
 			ParentClosePolicy:        enums.PARENT_CLOSE_POLICY_TERMINATE,
-			WorkflowExecutionTimeout: 2 * time.Minute,
+			WorkflowExecutionTimeout: 5 * time.Minute,
 			RetryPolicy: &temporal.RetryPolicy{
 				MaximumAttempts:    5,
 				InitialInterval:    time.Second,
@@ -94,14 +94,33 @@ func DigestWorkflow(ctx workflow.Context, in *DigestWorkflowInput) (*DigestWorkf
 		},
 	})
 
-	if err := workflow.ExecuteActivity(ctx, SendNotificationActivityName, &SendNotificationInput{
-		Posts: posts,
-	}).Get(ctx, nil); err != nil {
-		logger.Error("Failed to send notification", "error", err)
-		return nil, err
+	var err error
+
+	selector := workflow.NewSelector(ctx)
+	for _, recipient := range configuration.Recipients {
+		future := workflow.ExecuteActivity(ctx, SendNotificationActivityName, &SendNotificationInput{
+			Posts:     posts,
+			Recipient: recipient,
+		})
+
+		selector.AddFuture(future, func(f workflow.Future) {
+			if fErr := f.Get(ctx, nil); fErr != nil {
+				logger.Error("Failed to send notification", "error", fErr, "id", recipient.ID)
+				err = fErr
+				return
+			}
+		})
 	}
 
-	if err := workflow.ExecuteActivity(ctx, UpdateStateActivityName, &UpdateStateInput{
+	for i := 0; i < len(configuration.Recipients); i++ {
+		selector.Select(ctx)
+		if err != nil {
+			logger.Error("Failed to send notification", "error", err)
+			return nil, err
+		}
+	}
+
+	if err = workflow.ExecuteActivity(ctx, UpdateStateActivityName, &UpdateStateInput{
 		Subreddits: subreddits,
 	}).Get(ctx, nil); err != nil {
 		logger.Error("Failed to update state", "error", err)

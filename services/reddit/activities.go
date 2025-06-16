@@ -48,8 +48,9 @@ type (
 	}
 
 	LoadConfigurationAndStateOutput struct {
-		Keyword    string       `json:"keyword"`
-		Subreddits []*Subreddit `json:"subreddits,omitempty"`
+		Keyword    string              `json:"keyword"`
+		Recipients []*entity.Recipient `json:"recipients"`
+		Subreddits []*Subreddit        `json:"subreddits,omitempty"`
 	}
 )
 
@@ -78,6 +79,7 @@ func (a *Activities) LoadConfigurationAndState(ctx context.Context, in *LoadConf
 	return &LoadConfigurationAndStateOutput{
 		Keyword:    state.Keyword,
 		Subreddits: subreddits,
+		Recipients: state.Recipients,
 	}, nil
 }
 
@@ -108,9 +110,12 @@ func (a *Activities) GetPosts(ctx context.Context, in *GetPostsInput) (*GetPosts
 	logger := activity.GetLogger(ctx)
 	logger.Info("GetPosts started", "subreddit", in.Subreddit.Name, "keyword", in.Keyword)
 
-	url := fmt.Sprintf("https://oauth.reddit.com/r/%s/search", in.Subreddit.Name)
-
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	req, err := http.NewRequestWithContext(
+		ctx,
+		http.MethodGet,
+		fmt.Sprintf("https://oauth.reddit.com/r/%s/search", in.Subreddit.Name),
+		nil,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -192,7 +197,8 @@ func (a *Activities) GetPosts(ctx context.Context, in *GetPostsInput) (*GetPosts
 
 type (
 	SendNotificationInput struct {
-		Posts []reddit.Post `json:"posts"`
+		Posts     []reddit.Post     `json:"posts"`
+		Recipient *entity.Recipient `json:"recipients"`
 	}
 
 	SendNotificationOutput struct {
@@ -202,37 +208,57 @@ type (
 const SendNotificationActivityName = "send_notification"
 
 func (a *Activities) SendNotification(ctx context.Context, in *SendNotificationInput) (*SendNotificationOutput, error) {
-	// TODO: refactor / remove this from here
-	tmpl, err := template.New("email").ParseFiles("templates/index.html", "templates/post.html")
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse email template: %w", err)
-	}
+	switch in.Recipient.Type {
+	case "email":
+		type (
+			recipientConfiguration struct {
+				Recipients []struct {
+					Email string `json:"email"`
+				} `json:"recipients"`
+			}
+		)
+		var recipients recipientConfiguration
+		if err := json.Unmarshal([]byte(in.Recipient.Value), &recipients); err != nil {
+			return nil, err
+		}
+		var addresses []string
+		for _, recipient := range recipients.Recipients {
+			addresses = append(addresses, recipient.Email)
+		}
 
-	var postViews []PostView
-	for _, p := range in.Posts {
-		postViews = append(postViews, NewPostView(p))
-	}
+		// TODO: refactor / remove this from here
+		tmpl, err := template.New("email").ParseFiles("templates/index.html", "templates/post.html")
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse email template: %w", err)
+		}
 
-	data := map[string]any{
-		"Title": "New Reddit Posts Notification",
-		"Posts": postViews,
-	}
+		var postViews []PostView
+		for _, p := range in.Posts {
+			postViews = append(postViews, NewPostView(p))
+		}
 
-	var body bytes.Buffer
-	if err = tmpl.ExecuteTemplate(&body, "email", data); err != nil {
-		return nil, fmt.Errorf("failed to execute email template: %w", err)
-	}
+		data := map[string]any{
+			"Title": "New Reddit Posts Notification",
+			"Posts": postViews,
+		}
 
-	if err = a.mailer.SendMail(
-		ctx,
-		[]string{""},
-		"New Reddit Posts Notification",
-		body.String(),
-	); err != nil {
-		return nil, fmt.Errorf("failed to send mail: %w", err)
-	}
+		var body bytes.Buffer
+		if err = tmpl.ExecuteTemplate(&body, "email", data); err != nil {
+			return nil, fmt.Errorf("failed to execute email template: %w", err)
+		}
 
-	return nil, nil
+		if err = a.mailer.SendMail(
+			ctx,
+			addresses,
+			"New Reddit Posts Notification",
+			body.String(),
+		); err != nil {
+			return nil, fmt.Errorf("failed to send mail: %w", err)
+		}
+		return nil, nil
+	default:
+		return nil, fmt.Errorf("unsupported recipient type: %s", in.Recipient.Type)
+	}
 }
 
 type (

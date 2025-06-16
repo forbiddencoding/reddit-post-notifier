@@ -17,13 +17,18 @@ SELECT
 	sc.include_nsfw AS include_nsfw,
 	sc.sort AS sort,
 	sc.restrict_subreddit AS restrict_subreddit,
-	scs.before AS before
+	scs.before AS before,
+	r.id AS recipient_id,
+	r.type AS type,
+	r.value AS value
 FROM
     configuration c
 JOIN
 	subreddit_configuration sc ON c.id = sc.configuration_id
 LEFT JOIN
 	subreddit_configuration_state scs ON sc.id = scs.subreddit_configuration_id
+LEFT JOIN
+    recipients r ON c.id = r.configuration_id
 WHERE
     	c.id = :id;
 `
@@ -47,8 +52,10 @@ func (h *Handle) LoadConfigurationAndState(ctx context.Context, in *entity.LoadC
 	}()
 
 	var (
-		keyword    string
-		subreddits []*entity.Subreddit
+		keyword      string
+		subreddits   []*entity.Subreddit
+		recipientSet = make(map[int64]struct{})
+		recipients   []*entity.Recipient
 	)
 
 	for rows.Next() {
@@ -74,6 +81,17 @@ func (h *Handle) LoadConfigurationAndState(ctx context.Context, in *entity.LoadC
 		}
 
 		subreddits = append(subreddits, subreddit)
+
+		if m.RecipientID.Valid {
+			if _, ok := recipientSet[m.RecipientID.Int64]; ok {
+				recipients = append(recipients, &entity.Recipient{
+					ID:    m.RecipientID.Int64,
+					Type:  m.Type,
+					Value: m.Value,
+				})
+				recipientSet[m.RecipientID.Int64] = struct{}{}
+			}
+		}
 	}
 
 	if err = rows.Err(); err != nil {
@@ -82,6 +100,7 @@ func (h *Handle) LoadConfigurationAndState(ctx context.Context, in *entity.LoadC
 
 	return &entity.LoadConfigurationAndStateOutput{
 		Keyword:    keyword,
+		Recipients: recipients,
 		Subreddits: subreddits,
 	}, nil
 

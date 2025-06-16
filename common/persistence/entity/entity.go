@@ -2,6 +2,7 @@ package entity
 
 type (
 	Recipient struct {
+		ID    int64  `json:"id"`
 		Type  string `json:"type"`
 		Value string `json:"value"`
 	}
