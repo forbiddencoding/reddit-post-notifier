@@ -6,6 +6,7 @@ type (
 		Reddit      Reddit      `koanf:"reddit" yaml:"reddit" validate:"required"`
 		Persistence Persistence `koanf:"persistence" yaml:"persistence" validate:"required"`
 		Mailer      Mailer      `koanf:"mailer" yaml:"mailer" validate:"required"`
+		Server      Server      `koanf:"server" yaml:"server"`
 	}
 
 	Temporal struct {
@@ -36,5 +37,10 @@ type (
 		Resend struct {
 			APIKey string `koanf:"apiKey" validate:"required_if=Provider resend"`
 		} `koanf:"resend" validate:"required_if=Provider resend"`
+	}
+
+	Server struct {
+		Host string `koanf:"host" validate:"required"`
+		Port int    `koanf:"port" validate:"required"`
 	}
 )

@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"github.com/forbiddencoding/reddit-post-notifier/common/config"
 	"github.com/forbiddencoding/reddit-post-notifier/common/persistence"
+	"github.com/forbiddencoding/reddit-post-notifier/common/server"
+	"github.com/forbiddencoding/reddit-post-notifier/services/app"
+	"github.com/forbiddencoding/reddit-post-notifier/services/app/api"
 	"github.com/forbiddencoding/reddit-post-notifier/services/reddit"
 	"github.com/go-playground/validator/v10"
 	"github.com/urfave/cli/v3"
@@ -16,6 +19,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime/pprof"
+	"strings"
 	"syscall"
 )
 
@@ -34,7 +38,20 @@ func BuildCLI() *cli.Command {
 			{
 				Name:  "start",
 				Usage: "start reddit post notifier services",
+				Flags: []cli.Flag{
+					&cli.StringFlag{
+						Name:    "services",
+						Aliases: []string{"s"},
+						Usage:   "service(s) to start reddit post notifier services",
+						Value:   strings.Join(config.DefaultServices(), ","),
+					},
+				},
 				Before: func(ctx context.Context, cmd *cli.Command) (context.Context, error) {
+					services := strings.Split(cmd.String("services"), ",")
+					if len(services) == 0 {
+						return ctx, fmt.Errorf("no services provided")
+					}
+
 					if _, err := maxprocs.Set(); err != nil {
 						slog.Warn("could not set GOMAXPROCS", slog.Any("error", err))
 					}
@@ -98,10 +115,61 @@ func start(ctx context.Context, cmd *cli.Command) error {
 		_ = db.Close(ctx)
 	}()
 
+	registry, err := newServiceRegistry(ctx, conf, temporalClient, db)
+	if err != nil {
+		slog.Error("failed to create service registry", slog.Any("error", err))
+		return err
+	}
+
 	g, ctx := errgroup.WithContext(ctx)
-	g.Go(func() error {
-		return reddit.RunWorker(ctx, temporalClient, db, conf)
-	})
+
+	services := strings.Split(cmd.String("services"), ",")
+	for _, service := range services {
+		trimmedService := strings.TrimSpace(service)
+
+		s, ok := registry[trimmedService]
+		if !ok {
+			return fmt.Errorf("unknown service %s", trimmedService)
+		}
+
+		g.Go(func() error {
+			slog.Info("starting service", slog.Any("service", trimmedService))
+			return s.Start(ctx)
+		})
+	}
 
 	return g.Wait()
+}
+
+type (
+	Service interface {
+		Start(ctx context.Context) error
+		Close(ctx context.Context) error
+	}
+
+	ServiceRegistry map[string]Service
+)
+
+func newServiceRegistry(ctx context.Context, conf *config.Config, temporal client.Client, db persistence.Persistence) (ServiceRegistry, error) {
+	appInstance, err := app.New(conf, temporal, db)
+	if err != nil {
+		return nil, err
+	}
+
+	router := api.NewRouter(appInstance)
+
+	appServer := server.New(router, conf)
+
+	// ---
+
+	workerInstance, err := reddit.New(ctx, temporal, db, conf)
+	if err != nil {
+		return nil, err
+	}
+
+	registry := ServiceRegistry{
+		"app":    appServer,
+		"worker": workerInstance,
+	}
+	return registry, nil
 }

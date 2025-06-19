@@ -3,8 +3,9 @@ module github.com/forbiddencoding/reddit-post-notifier
 go 1.24.2
 
 require (
+	github.com/go-chi/chi/v5 v5.2.1
 	github.com/go-playground/validator/v10 v10.26.0
-	github.com/go-sql-driver/mysql v1.9.2
+	github.com/go-sql-driver/mysql v1.9.3
 	github.com/jackc/pgx/v5 v5.7.5
 	github.com/jmoiron/sqlx v1.4.0
 	github.com/knadh/koanf/parsers/yaml v1.0.0
@@ -12,8 +13,9 @@ require (
 	github.com/knadh/koanf/providers/file v1.2.0
 	github.com/knadh/koanf/v2 v2.2.1
 	github.com/resend/resend-go/v2 v2.20.0
+	github.com/sony/sonyflake/v2 v2.2.0
 	github.com/tursodatabase/go-libsql v0.0.0-20250609073118-9c24e0e7fa97
-	github.com/urfave/cli/v3 v3.3.3
+	github.com/urfave/cli/v3 v3.3.8
 	go.temporal.io/api v1.50.0
 	go.temporal.io/sdk v1.34.0
 	go.uber.org/automaxprocs v1.6.0

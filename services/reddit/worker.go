@@ -11,7 +11,11 @@ import (
 	"go.temporal.io/sdk/workflow"
 )
 
-func RunWorker(ctx context.Context, client client.Client, persistence persistence.Persistence, conf *config.Config) error {
+type Worker struct {
+	worker worker.Worker
+}
+
+func New(ctx context.Context, client client.Client, persistence persistence.Persistence, conf *config.Config) (*Worker, error) {
 	options := worker.Options{}
 
 	w := worker.New(client, "reddit", options)
@@ -19,7 +23,7 @@ func RunWorker(ctx context.Context, client client.Client, persistence persistenc
 
 	activities, err := NewActivities(ctx, persistence, conf)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	w.RegisterWorkflowWithOptions(DigestWorkflow, workflow.RegisterOptions{Name: "digest"})
@@ -30,5 +34,16 @@ func RunWorker(ctx context.Context, client client.Client, persistence persistenc
 	w.RegisterWorkflowWithOptions(PostWorkflow, workflow.RegisterOptions{Name: "post"})
 	w.RegisterActivityWithOptions(activities.GetPosts, activity.RegisterOptions{Name: GetPostsActivityName})
 
-	return w.Run(temporalx.WorkerInterruptFromCtxChan(ctx))
+	return &Worker{
+		worker: w,
+	}, nil
+}
+
+func (w *Worker) Start(ctx context.Context) error {
+	return w.worker.Run(temporalx.WorkerInterruptFromCtxChan(ctx))
+}
+
+func (w *Worker) Close(ctx context.Context) error {
+	w.worker.Stop()
+	return nil
 }

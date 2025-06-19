@@ -1,0 +1,220 @@
+package reddit
+
+import (
+	"context"
+	"fmt"
+	"github.com/forbiddencoding/reddit-post-notifier/common/persistence"
+	"github.com/forbiddencoding/reddit-post-notifier/common/persistence/entity"
+	"github.com/forbiddencoding/reddit-post-notifier/services/reddit"
+	"github.com/sony/sonyflake/v2"
+	"go.temporal.io/sdk/client"
+)
+
+type (
+	Servicer interface {
+		CreateSchedule(ctx context.Context, in *CreateScheduleInput) (*CreateScheduleOutput, error)
+		GetSchedule(ctx context.Context, in *GetScheduleInput) (*GetScheduleOutput, error)
+		UpdateSchedule(ctx context.Context, in *UpdateScheduleInput) (*UpdateScheduleOutput, error)
+		DeleteSchedule(ctx context.Context, in *DeleteScheduleInput) (*DeleteScheduleOutput, error)
+		ListSchedules(ctx context.Context, in *ListSchedulesInput) (*ListSchedulesOutput, error)
+	}
+
+	Service struct {
+		db             persistence.Persistence
+		temporalClient client.Client
+		sonyflake      *sonyflake.Sonyflake
+	}
+)
+
+var _ Servicer = (*Service)(nil)
+
+func NewService(
+	db persistence.Persistence,
+	temporalClient client.Client,
+	sonyflake *sonyflake.Sonyflake,
+) (Servicer, error) {
+	return &Service{
+		db:             db,
+		temporalClient: temporalClient,
+		sonyflake:      sonyflake,
+	}, nil
+}
+
+func (s *Service) CreateSchedule(ctx context.Context, in *CreateScheduleInput) (*CreateScheduleOutput, error) {
+	id, err := s.sonyflake.NextID()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate ID: %w", err)
+	}
+
+	var (
+		recipients = make([]*entity.CreateScheduleRecipient, 0, len(in.Recipients))
+		subreddits = make([]*entity.CreateScheduleSubreddit, 0, len(in.Subreddits))
+	)
+
+	for _, recipient := range in.Recipients {
+		recipientID, err := s.sonyflake.NextID()
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate ID: %w", err)
+		}
+
+		recipients = append(recipients, &entity.CreateScheduleRecipient{
+			ID:    recipientID,
+			Type:  recipient.Type,
+			Value: recipient.Configuration,
+		})
+	}
+
+	for _, subreddit := range in.Subreddits {
+		subredditID, err := s.sonyflake.NextID()
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate ID: %w", err)
+		}
+		subreddits = append(subreddits, &entity.CreateScheduleSubreddit{
+			ID:                subredditID,
+			Subreddit:         subreddit.Subreddit,
+			IncludeNSFW:       subreddit.IncludeNSFW,
+			Sort:              subreddit.Sort,
+			RestrictSubreddit: subreddit.RestrictSubreddit,
+		})
+	}
+
+	_, err = s.db.CreateSchedule(ctx, &entity.CreateScheduleInput{
+		ID:         id,
+		Keyword:    in.Keyword,
+		OwnerID:    0,
+		Recipients: recipients,
+		Subreddits: subreddits,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create schedule: %w", err)
+	}
+
+	_, err = s.temporalClient.ScheduleClient().Create(ctx, client.ScheduleOptions{
+		ID: fmt.Sprintf("reddit_posts::%d", id),
+		Action: &client.ScheduleWorkflowAction{
+			Workflow: reddit.DigestWorkflow,
+			Args: []any{&reddit.DigestWorkflowInput{
+				ID: id,
+			}},
+			TaskQueue: "reddit",
+		},
+		Spec: client.ScheduleSpec{
+			CronExpressions: []string{in.Schedule},
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return nil, nil
+}
+
+func (s *Service) GetSchedule(ctx context.Context, in *GetScheduleInput) (*GetScheduleOutput, error) {
+	schedule, err := s.db.GetSchedule(ctx, &entity.GetScheduleInput{
+		ID: in.ScheduleID,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	var (
+		subreddits = make([]*Subreddit, 0, len(schedule.Subreddits))
+		recipients = make([]*Recipient, 0, len(schedule.Recipients))
+	)
+
+	for _, subreddit := range schedule.Subreddits {
+		subreddits = append(subreddits, &Subreddit{
+			Subreddit:         subreddit.Name,
+			IncludeNSFW:       subreddit.IncludeNSFW,
+			Sort:              subreddit.Sort,
+			RestrictSubreddit: subreddit.RestrictSubreddit,
+		})
+	}
+
+	for _, recipient := range schedule.Recipients {
+		recipients = append(recipients, &Recipient{
+			Type:          recipient.Type,
+			Configuration: recipient.Value,
+		})
+	}
+
+	return &GetScheduleOutput{
+		Keyword:    schedule.Keyword,
+		Subreddits: subreddits,
+		Recipients: recipients,
+	}, nil
+}
+
+func (s *Service) UpdateSchedule(ctx context.Context, in *UpdateScheduleInput) (*UpdateScheduleOutput, error) {
+	handle := s.temporalClient.ScheduleClient().GetHandle(ctx, fmt.Sprintf("reddit_posts::%d", in.ID))
+	if err := handle.Update(ctx, client.ScheduleUpdateOptions{
+		DoUpdate: func(input client.ScheduleUpdateInput) (*client.ScheduleUpdate, error) {
+			return &client.ScheduleUpdate{
+				Schedule: &client.Schedule{
+					Spec: &client.ScheduleSpec{
+						CronExpressions: []string{in.Schedule},
+					},
+				},
+			}, nil
+		},
+	}); err != nil {
+		return nil, err
+	}
+
+	return nil, nil
+}
+
+func (s *Service) DeleteSchedule(ctx context.Context, in *DeleteScheduleInput) (*DeleteScheduleOutput, error) {
+	handle := s.temporalClient.ScheduleClient().GetHandle(ctx, fmt.Sprintf("reddit_posts::%d", in.ID))
+	if err := handle.Delete(ctx); err != nil {
+		return nil, err
+	}
+
+	if _, err := s.db.DeleteSchedule(ctx, &entity.DeleteScheduleInput{ID: in.ID}); err != nil {
+		return nil, err
+	}
+
+	return nil, nil
+}
+
+func (s *Service) ListSchedules(ctx context.Context, in *ListSchedulesInput) (*ListSchedulesOutput, error) {
+	res, err := s.db.ListSchedules(ctx, &entity.ListSchedulesInput{
+		OwnerID: in.OwnerID,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	schedules := make([]*Schedule, 0, len(res.Schedules))
+	for _, schedule := range res.Schedules {
+		subreddits := make([]*Subreddit, 0, len(schedule.Subreddits))
+		for _, subreddit := range schedule.Subreddits {
+			subreddits = append(subreddits, &Subreddit{
+				Subreddit:         subreddit.Name,
+				IncludeNSFW:       subreddit.IncludeNSFW,
+				Sort:              subreddit.Sort,
+				RestrictSubreddit: subreddit.RestrictSubreddit,
+			})
+		}
+
+		recipients := make([]*Recipient, 0, len(schedule.Recipients))
+		for _, recipient := range schedule.Recipients {
+			recipients = append(recipients, &Recipient{
+				Type:          recipient.Type,
+				Configuration: recipient.Value,
+			})
+		}
+
+		schedules = append(schedules, &Schedule{
+			Keyword:    schedule.Keyword,
+			Subreddits: subreddits,
+			Schedule:   schedule.Schedule,
+			Recipients: recipients,
+			OwnerID:    schedule.OwnerID,
+		})
+	}
+
+	return &ListSchedulesOutput{
+		Schedules: schedules,
+	}, nil
+}

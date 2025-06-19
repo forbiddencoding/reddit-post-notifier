@@ -35,3 +35,9 @@ func LoadConfig(ctx context.Context, filepath string, validate *validator.Valida
 
 	return &config, nil
 }
+
+var defaultServices = []string{"app", "worker"}
+
+func DefaultServices() []string {
+	return defaultServices
+}
