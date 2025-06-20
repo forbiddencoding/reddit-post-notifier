@@ -16,6 +16,7 @@ type Persistence interface {
 	CreateSchedule(ctx context.Context, in *entity.CreateScheduleInput) (*entity.CreateScheduleOutput, error)
 	DeleteSchedule(ctx context.Context, in *entity.DeleteScheduleInput) (*entity.DeleteScheduleOutput, error)
 	ListSchedules(ctx context.Context, in *entity.ListSchedulesInput) (*entity.ListSchedulesOutput, error)
+	UpdateSchedule(ctx context.Context, in *entity.UpdateScheduleInput) (*entity.UpdateScheduleOutput, error)
 }
 
 var ErrUnsupportedPersistenceDriver = errors.New("unsupported persistence driver")

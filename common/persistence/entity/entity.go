@@ -98,4 +98,14 @@ type (
 	ListSchedulesOutput struct {
 		Schedules []*Schedule `json:"schedules"`
 	}
+
+	UpdateScheduleInput struct {
+		ID         int64        `json:"id"`
+		Keyword    string       `json:"keyword"`
+		Schedule   string       `json:"schedule"`
+		Recipients []*Recipient `json:"recipients"`
+		Subreddits []*Subreddit `json:"subreddits"`
+	}
+
+	UpdateScheduleOutput struct{}
 )

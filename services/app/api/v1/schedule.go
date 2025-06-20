@@ -14,7 +14,9 @@ type ScheduleHandler struct {
 }
 
 func NewScheduleHandler(scheduleService reddit.Servicer) *ScheduleHandler {
-	return &ScheduleHandler{scheduleService}
+	return &ScheduleHandler{
+		scheduleService: scheduleService,
+	}
 }
 
 func (h *ScheduleHandler) CreateSchedulePost() http.HandlerFunc {
@@ -149,12 +151,14 @@ func (h *ScheduleHandler) DeleteScheduleDelete() http.HandlerFunc {
 func (h *ScheduleHandler) UpdateSchedulePut() http.HandlerFunc {
 	type (
 		subreddit struct {
+			ID                int64  `json:"id,omitzero"`
 			Subreddit         string `json:"subreddit"`
 			IncludeNSFW       bool   `json:"include_nsfw"`
 			Sort              string `json:"sort"`
 			RestrictSubreddit bool   `json:"restrict_subreddit"`
 		}
 		recipient struct {
+			ID            int64          `json:"id,omitzero"`
 			Type          string         `json:"type"`
 			Configuration map[string]any `json:"configuration"`
 		}
@@ -189,6 +193,7 @@ func (h *ScheduleHandler) UpdateSchedulePut() http.HandlerFunc {
 
 		for _, sub := range req.Subreddits {
 			subreddits = append(subreddits, &reddit.Subreddit{
+				ID:                sub.ID,
 				Subreddit:         sub.Subreddit,
 				IncludeNSFW:       sub.IncludeNSFW,
 				Sort:              sub.Sort,
@@ -204,6 +209,7 @@ func (h *ScheduleHandler) UpdateSchedulePut() http.HandlerFunc {
 			}
 
 			recipients = append(recipients, &reddit.Recipient{
+				ID:            rec.ID,
 				Type:          rec.Type,
 				Configuration: string(conf),
 			})

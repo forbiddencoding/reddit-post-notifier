@@ -48,7 +48,6 @@ func (h *Handle) LoadConfigurationAndState(ctx context.Context, in *entity.LoadC
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 
 	dbModels, err := pgx.CollectRows(rows, pgx.RowToStructByName[models.LoadConfigurationAndState])
 	if err != nil {
@@ -246,7 +245,6 @@ func (h *Handle) GetSchedule(ctx context.Context, in *entity.GetScheduleInput) (
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 
 	dbModels, err := pgx.CollectRows(rows, pgx.RowToStructByName[models.GetSchedule])
 	if err != nil {
@@ -443,4 +441,186 @@ func (h *Handle) ListSchedules(ctx context.Context, in *entity.ListSchedulesInpu
 	return &entity.ListSchedulesOutput{
 		Schedules: schedules,
 	}, nil
+}
+
+func (h *Handle) UpdateSchedule(ctx context.Context, in *entity.UpdateScheduleInput) (*entity.UpdateScheduleOutput, error) {
+	db, err := h.db()
+	if err != nil {
+		return nil, err
+	}
+
+	tx, err := db.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+
+	if err = h.updateConfiguration(ctx, tx, in); err != nil {
+		return nil, err
+	}
+
+	if err = h.syncSubreddits(ctx, tx, in.ID, in.Subreddits); err != nil {
+		return nil, err
+	}
+
+	if err = h.syncRecipients(ctx, tx, in.ID, in.Recipients); err != nil {
+		return nil, err
+	}
+
+	if err = tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+
+	return nil, nil
+}
+
+const updateConfigurationQuery = `
+UPDATE configuration
+SET keyword = @keyword, schedule = @schedule
+WHERE id = @id
+`
+
+func (h *Handle) updateConfiguration(ctx context.Context, tx pgx.Tx, in *entity.UpdateScheduleInput) error {
+	args := pgx.NamedArgs{
+		"id":       in.ID,
+		"keyword":  in.Keyword,
+		"schedule": in.Schedule,
+	}
+	_, err := tx.Exec(ctx, updateConfigurationQuery, args)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (h *Handle) syncSubreddits(ctx context.Context, tx pgx.Tx, configurationID int64, subreddits []*entity.Subreddit) error {
+	const getQ = `SELECT id FROM subreddit_configuration WHERE configuration_id = @configuration_id;`
+	rows, err := tx.Query(ctx, getQ, pgx.NamedArgs{"configuration_id": configurationID})
+	if err != nil {
+		return err
+	}
+
+	existingIDs, err := pgx.CollectRows(rows, pgx.RowTo[int64])
+	if err != nil {
+		return fmt.Errorf("failed to collect existing subreddits: %w", err)
+	}
+
+	existingIDSet := make(map[int64]struct{}, len(existingIDs))
+	for _, id := range existingIDs {
+		existingIDSet[id] = struct{}{}
+	}
+
+	desiredIDSet := make(map[int64]struct{})
+	for _, sub := range subreddits {
+		desiredIDSet[sub.ID] = struct{}{}
+	}
+
+	var toDelete []int64
+	for id := range existingIDSet {
+		if _, found := desiredIDSet[id]; !found {
+			toDelete = append(toDelete, id)
+		}
+	}
+
+	batch := &pgx.Batch{}
+	if len(toDelete) > 0 {
+		batch.Queue(`DELETE FROM subreddit_configuration WHERE id = ANY(@ids)`, pgx.NamedArgs{"ids": toDelete})
+	}
+
+	const upsertQ = `
+INSERT INTO subreddit_configuration (id, configuration_id, subreddit, include_nsfw, sort, restrict_subreddit)
+VALUES (@id, @configuration_id, @subreddit, @include_nsfw, @sort, @restrict_subreddit)
+ON CONFLICT (id) DO UPDATE SET
+                               subreddit = excluded.subreddit,
+                               include_nsfw = excluded.include_nsfw,
+                               sort = excluded.sort,
+                               restrict_subreddit = excluded.restrict_subreddit
+`
+
+	for _, sub := range subreddits {
+		args := pgx.NamedArgs{
+			"id":                 sub.ID,
+			"configuration_id":   configurationID,
+			"subreddit":          sub.Name,
+			"include_nsfw":       sub.IncludeNSFW,
+			"sort":               sub.Sort,
+			"restrict_subreddit": sub.RestrictSubreddit,
+		}
+		batch.Queue(upsertQ, args)
+	}
+
+	br := tx.SendBatch(ctx, batch)
+	defer func() {
+		_ = br.Close()
+	}()
+	for i := 0; i < batch.Len(); i++ {
+		if _, err = br.Exec(); err != nil {
+			return fmt.Errorf("error in subrredit sync batch operation: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func (h *Handle) syncRecipients(ctx context.Context, tx pgx.Tx, configurationID int64, recipients []*entity.Recipient) error {
+	const getQ = `SELECT id FROM recipients WHERE configuration_id = @configuration_id;`
+	rows, err := tx.Query(ctx, getQ, pgx.NamedArgs{"configuration_id": configurationID})
+	if err != nil {
+		return err
+	}
+
+	existingIDs, err := pgx.CollectRows(rows, pgx.RowTo[int64])
+	if err != nil {
+		return fmt.Errorf("failed to collect existing recipients: %w", err)
+	}
+
+	desiredIDSet := make(map[int64]struct{}, len(existingIDs))
+	for _, id := range existingIDs {
+		desiredIDSet[id] = struct{}{}
+	}
+
+	var toDelete []int64
+	for _, id := range existingIDs {
+		if _, found := desiredIDSet[id]; !found {
+			toDelete = append(toDelete, id)
+		}
+	}
+
+	batch := &pgx.Batch{}
+	if len(toDelete) > 0 {
+		batch.Queue(`DELETE FROM recipients WHERE id = ANY(@ids);`, pgx.NamedArgs{"ids": toDelete})
+	}
+
+	const upsertQ = `
+INSERT INTO recipients (id, configuration_id, type, value)
+VALUES (@id, @configuration_id, @type, @value)
+ON CONFLICT (id) DO UPDATE SET
+                               type = EXCLUDED.type,
+                               value = EXCLUDED.value
+`
+
+	for _, recipient := range recipients {
+		args := pgx.NamedArgs{
+			"id":               recipient.ID,
+			"configuration_id": configurationID,
+			"type":             recipient.Type,
+			"value":            recipient.Value,
+		}
+		batch.Queue(upsertQ, args)
+	}
+
+	br := tx.SendBatch(ctx, batch)
+	defer func() {
+		_ = br.Close()
+	}()
+
+	for i := 0; i < batch.Len(); i++ {
+		if _, err = br.Exec(); err != nil {
+			return fmt.Errorf("error in recipient sync batch operation: %w", err)
+		}
+	}
+
+	return nil
 }

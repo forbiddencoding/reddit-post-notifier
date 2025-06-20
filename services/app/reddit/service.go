@@ -145,18 +145,77 @@ func (s *Service) GetSchedule(ctx context.Context, in *GetScheduleInput) (*GetSc
 	}, nil
 }
 
+// UpdateSchedule updates both the database entry and the corresponding temporal schedule. In theory this would also be
+// a great use case for a temporal workflow as this would guarantee that a possible cron expression change is properly
+// stored in the database and set in the temporal schedule.
 func (s *Service) UpdateSchedule(ctx context.Context, in *UpdateScheduleInput) (*UpdateScheduleOutput, error) {
+	var (
+		recipients = make([]*entity.Recipient, 0, len(in.Recipients))
+		subreddits = make([]*entity.Subreddit, 0, len(in.Subreddits))
+	)
+
+	for _, recipient := range in.Recipients {
+		id, err := s.sonyflake.NextID()
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate ID: %w", err)
+		}
+		if recipient.ID != 0 {
+			id = recipient.ID
+		}
+
+		recipients = append(recipients, &entity.Recipient{
+			ID:    id,
+			Type:  recipient.Type,
+			Value: recipient.Configuration,
+		})
+	}
+
+	for _, subreddit := range in.Subreddits {
+		id, err := s.sonyflake.NextID()
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate ID: %w", err)
+		}
+		if subreddit.ID != 0 {
+			id = subreddit.ID
+		}
+		subreddits = append(subreddits, &entity.Subreddit{
+			ID:                id,
+			Name:              subreddit.Subreddit,
+			IncludeNSFW:       subreddit.IncludeNSFW,
+			Sort:              subreddit.Sort,
+			RestrictSubreddit: subreddit.RestrictSubreddit,
+		})
+	}
+
+	_, err := s.db.UpdateSchedule(ctx, &entity.UpdateScheduleInput{
+		ID:         in.ID,
+		Keyword:    in.Keyword,
+		Schedule:   in.Schedule,
+		Recipients: recipients,
+		Subreddits: subreddits,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to update schedule: %w", err)
+	}
+
 	handle := s.temporalClient.ScheduleClient().GetHandle(ctx, fmt.Sprintf("reddit_posts::%d", in.ID))
-	if err := handle.Update(ctx, client.ScheduleUpdateOptions{
-		DoUpdate: func(input client.ScheduleUpdateInput) (*client.ScheduleUpdate, error) {
-			return &client.ScheduleUpdate{
-				Schedule: &client.Schedule{
-					Spec: &client.ScheduleSpec{
-						CronExpressions: []string{in.Schedule},
-					},
-				},
-			}, nil
-		},
+
+	updateSchedule := func(input client.ScheduleUpdateInput) (*client.ScheduleUpdate, error) {
+		schedule := input.Description.Schedule
+
+		// Calendars and Intervals are explicitly set to nil, otherwise this would prevent us from updating the schedule
+		// using CronExpressions
+		schedule.Spec.Calendars = nil
+		schedule.Spec.Intervals = nil
+		schedule.Spec.CronExpressions = []string{in.Schedule}
+
+		return &client.ScheduleUpdate{
+			Schedule: &schedule,
+		}, nil
+	}
+
+	if err = handle.Update(ctx, client.ScheduleUpdateOptions{
+		DoUpdate: updateSchedule,
 	}); err != nil {
 		return nil, err
 	}

@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS configuration
 (
     id              BIGINT    NOT NULL,
     keyword         TEXT      NOT NULL,
+    schedule        TEXT      NOT NULL DEFAULT '0 0 * * *',
     created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     last_updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (id)
@@ -33,5 +34,20 @@ CREATE TABLE IF NOT EXISTS subreddit_configuration_state
     last_updated_at            TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (subreddit_configuration_id) REFERENCES subreddit_configuration (id) ON DELETE CASCADE
 );
+
+CREATE TABLE IF NOT EXISTS recipients
+(
+    id               BIGINT    NOT NULL,
+    configuration_id BIGINT    NOT NULL,
+    type             TEXT      NOT NULL DEFAULT 'email',
+    value            TEXT      NOT NULL,
+    created_at       TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_updated_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    FOREIGN KEY (configuration_id) REFERENCES configuration (id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_recipients_configuration_id
+    ON recipients (configuration_id);
 
 COMMIT;
