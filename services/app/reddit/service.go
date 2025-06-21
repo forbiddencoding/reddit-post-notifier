@@ -249,6 +249,7 @@ func (s *Service) ListSchedules(ctx context.Context, in *ListSchedulesInput) (*L
 		subreddits := make([]*Subreddit, 0, len(schedule.Subreddits))
 		for _, subreddit := range schedule.Subreddits {
 			subreddits = append(subreddits, &Subreddit{
+				ID:                subreddit.ID,
 				Subreddit:         subreddit.Name,
 				IncludeNSFW:       subreddit.IncludeNSFW,
 				Sort:              subreddit.Sort,
@@ -259,6 +260,7 @@ func (s *Service) ListSchedules(ctx context.Context, in *ListSchedulesInput) (*L
 		recipients := make([]*Recipient, 0, len(schedule.Recipients))
 		for _, recipient := range schedule.Recipients {
 			recipients = append(recipients, &Recipient{
+				ID:            recipient.ID,
 				Type:          recipient.Type,
 				Configuration: recipient.Value,
 			})

@@ -1,0 +1,12 @@
+# Just in case, never filter git files
+.gitattributes !filter !diff
+.gitignore !filter !diff
+
+* text=auto
+
+.github/*           linguist-generated=true
+.gitattributes      linguist-generated=true
+.gitignore          linguist-generated=true
+LICENSE             linguist-generated=true
+NOTICE              linguist-generated=true
+README.md           linguist-generated=true

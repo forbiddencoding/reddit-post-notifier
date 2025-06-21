@@ -65,8 +65,23 @@ services:
     ports:
       - '5432:5432'
 
+  mysql:
+    image: mariadb:11.8.2-ubi9
+    hostname: mysql
+    networks:
+      - reddit-post-notifier
+    environment:
+      MYSQL_DATABASE: root
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_ROOT_HOST: '%'
+    volumes:
+      - mysql-data:/var/lib/mysql
+    ports:
+      - '3306:3306'
+
 volumes:
   postgres-data:
+  mysql-data:
 
 networks:
   reddit-post-notifier:

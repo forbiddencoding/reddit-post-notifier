@@ -7,6 +7,7 @@ import (
 	"github.com/forbiddencoding/reddit-post-notifier/common/persistence/entity"
 	"github.com/forbiddencoding/reddit-post-notifier/common/persistence/postgres/models"
 	"github.com/jackc/pgx/v5"
+	"strings"
 )
 
 const loadConfigurationAndStateQuery = `
@@ -18,7 +19,7 @@ SELECT
 	sc.include_nsfw AS include_nsfw,
 	sc.sort AS sort,
 	sc.restrict_subreddit AS restrict_subreddit,
-	scs.before AS before,
+	scs.last_post AS before,
 	r.id AS recipient_id,
 	r.type AS type,
 	r.value AS value
@@ -58,50 +59,59 @@ func (h *Handle) LoadConfigurationAndState(ctx context.Context, in *entity.LoadC
 		return &entity.LoadConfigurationAndStateOutput{}, nil
 	}
 
-	var (
-		subreddits   []*entity.Subreddit
-		recipientSet = make(map[int64]struct{})
-		recipients   []*entity.Recipient
-	)
+	keyword := dbModels[0].Keyword
+	subredditMap := make(map[int64]*entity.Subreddit)
+	recipientMap := make(map[int64]*entity.Recipient)
 
 	for _, m := range dbModels {
-		sr := &entity.Subreddit{
-			ID:                m.SubredditID,
-			Name:              m.Subreddit,
-			IncludeNSFW:       m.IncludeNSFW,
-			Sort:              m.Sort,
-			RestrictSubreddit: m.RestrictSubreddit,
-		}
+		if _, ok := subredditMap[m.SubredditID]; !ok {
+			subreddit := &entity.Subreddit{
+				ID:                m.SubredditID,
+				Name:              m.Subreddit,
+				IncludeNSFW:       m.IncludeNSFW,
+				Sort:              m.Sort,
+				RestrictSubreddit: m.RestrictSubreddit,
+			}
 
-		if m.Before.Valid {
-			sr.After = m.Before.String
-		}
+			if m.Before.Valid {
+				subreddit.After = m.Before.String
+			}
 
-		subreddits = append(subreddits, sr)
+			subredditMap[m.SubredditID] = subreddit
+		}
 
 		if m.RecipientID.Valid {
-			if _, ok := recipientSet[m.RecipientID.Int64]; !ok {
-				recipients = append(recipients, &entity.Recipient{
+			if _, ok := recipientMap[m.RecipientID.Int64]; !ok {
+				recipientMap[m.RecipientID.Int64] = &entity.Recipient{
 					ID:    m.RecipientID.Int64,
 					Type:  m.Type,
 					Value: m.Value,
-				})
-				recipientSet[m.RecipientID.Int64] = struct{}{}
+				}
 			}
 		}
 	}
 
+	subreddits := make([]*entity.Subreddit, 0, len(subredditMap))
+	for _, v := range subredditMap {
+		subreddits = append(subreddits, v)
+	}
+
+	recipients := make([]*entity.Recipient, 0, len(recipientMap))
+	for _, v := range recipientMap {
+		recipients = append(recipients, v)
+	}
+
 	return &entity.LoadConfigurationAndStateOutput{
-		Keyword:    dbModels[0].Keyword,
+		Keyword:    keyword,
 		Recipients: recipients,
 		Subreddits: subreddits,
 	}, nil
 }
 
 const updateStateQuery = `
-INSERT INTO subreddit_configuration_state (subreddit_configuration_id, before) VALUES ($1, $2)
+INSERT INTO subreddit_configuration_state (subreddit_configuration_id, last_post) VALUES ($1, $2)
 ON CONFLICT (subreddit_configuration_id) DO UPDATE 
-SET before = EXCLUDED.before, lASt_updated_at = CURRENT_TIMESTAMP;
+SET last_post = EXCLUDED.last_post, last_updated_at = CURRENT_TIMESTAMP;
 `
 
 func (h *Handle) UpdateState(ctx context.Context, in *entity.UpdateStateInput) (*entity.UpdateStateOutput, error) {
@@ -123,9 +133,9 @@ func (h *Handle) UpdateState(ctx context.Context, in *entity.UpdateStateInput) (
 
 	var errs error
 
-	for _, v := range in.Values {
+	for i := 0; i < batch.Len(); i++ {
 		if _, err = br.Exec(); err != nil {
-			errors.Join(errs, fmt.Errorf("failed to update state for subreddit configuration ID %d: %w", v.SubredditConfigurationID, err))
+			errors.Join(errs, err)
 		}
 	}
 
@@ -133,7 +143,7 @@ func (h *Handle) UpdateState(ctx context.Context, in *entity.UpdateStateInput) (
 		return nil, fmt.Errorf("failed to update state: %w", errs)
 	}
 
-	return nil, nil
+	return &entity.UpdateStateOutput{}, nil
 }
 
 const (
@@ -255,63 +265,59 @@ func (h *Handle) GetSchedule(ctx context.Context, in *entity.GetScheduleInput) (
 		return &entity.GetScheduleOutput{}, nil
 	}
 
-	var (
-		subreddits   []*entity.Subreddit
-		recipientSet = make(map[int64]struct{})
-		recipients   []*entity.Recipient
-	)
+	keyword := dbModels[0].Keyword
+	schedule := dbModels[0].Schedule
+	subredditMap := make(map[int64]*entity.Subreddit)
+	recipientMap := make(map[int64]*entity.Recipient)
 
 	for _, m := range dbModels {
-		sr := &entity.Subreddit{
-			ID:                m.SubredditID,
-			Name:              m.Subreddit,
-			IncludeNSFW:       m.IncludeNSFW,
-			Sort:              m.Sort,
-			RestrictSubreddit: m.RestrictSubreddit,
+		if _, ok := subredditMap[m.SubredditID]; !ok {
+			subredditMap[m.SubredditID] = &entity.Subreddit{
+				ID:                m.SubredditID,
+				Name:              m.Subreddit,
+				IncludeNSFW:       m.IncludeNSFW,
+				Sort:              m.Sort,
+				RestrictSubreddit: m.RestrictSubreddit,
+			}
 		}
 
-		subreddits = append(subreddits, sr)
-
 		if m.RecipientID.Valid {
-			if _, ok := recipientSet[m.RecipientID.Int64]; !ok {
-				recipients = append(recipients, &entity.Recipient{
+			if _, ok := recipientMap[m.RecipientID.Int64]; !ok {
+				recipientMap[m.RecipientID.Int64] = &entity.Recipient{
 					ID:    m.RecipientID.Int64,
 					Type:  m.Type,
 					Value: m.Value,
-				})
-				recipientSet[m.RecipientID.Int64] = struct{}{}
+				}
 			}
 		}
 	}
 
+	subreddits := make([]*entity.Subreddit, 0, len(subredditMap))
+	for _, v := range subredditMap {
+		subreddits = append(subreddits, v)
+	}
+
+	recipients := make([]*entity.Recipient, 0, len(recipientMap))
+	for _, v := range recipientMap {
+		recipients = append(recipients, v)
+	}
+
 	return &entity.GetScheduleOutput{
-		Keyword:    dbModels[0].Keyword,
-		Schedule:   dbModels[0].Schedule,
+		Keyword:    keyword,
+		Schedule:   schedule,
 		Recipients: recipients,
 		Subreddits: subreddits,
 		OwnerID:    0,
 	}, nil
 }
 
-const (
-	deleteScheduleQuery = `
-DELETE FROM configuration WHERE id = @id;
-`
-)
+const deleteScheduleQuery = `DELETE FROM configuration WHERE id = @id`
 
 func (h *Handle) DeleteSchedule(ctx context.Context, in *entity.DeleteScheduleInput) (*entity.DeleteScheduleOutput, error) {
 	db, err := h.db()
 	if err != nil {
 		return nil, err
 	}
-
-	tx, err := db.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		_ = tx.Rollback(ctx)
-	}()
 
 	args := pgx.NamedArgs{
 		"id": in.ID,
@@ -326,11 +332,7 @@ func (h *Handle) DeleteSchedule(ctx context.Context, in *entity.DeleteScheduleIn
 		return nil, errors.New("delete schedule row not found")
 	}
 
-	if err = tx.Commit(ctx); err != nil {
-		return nil, err
-	}
-
-	return nil, nil
+	return &entity.DeleteScheduleOutput{}, nil
 }
 
 const listSchedulesQuery = `
@@ -339,7 +341,6 @@ SELECT
 	c.keyword AS keyword,
 	c.schedule AS schedule,
 	c.owner_id AS owner_id,
-	c.status AS status,
 	sc.id AS subreddit_id,
 	sc.subreddit AS subreddit,
 	sc.include_nsfw AS include_nsfw,
@@ -353,8 +354,6 @@ FROM
 JOIN
 	subreddit_configuration sc ON c.id = sc.configuration_id
 LEFT JOIN
-	subreddit_configuration_state scs ON sc.id = scs.subreddit_configuration_id
-LEFT JOIN
     recipients r ON c.id = r.configuration_id
 `
 
@@ -364,17 +363,18 @@ func (h *Handle) ListSchedules(ctx context.Context, in *entity.ListSchedulesInpu
 		return nil, err
 	}
 
-	query := listSchedulesQuery
+	var sb strings.Builder
+	sb.WriteString(listSchedulesQuery)
 	args := pgx.NamedArgs{}
 
 	if in.OwnerID != 0 {
-		query += "WHERE c.owner_id = @owner_id"
+		sb.WriteString(" WHERE c.owner_id = @owner_id")
 		args["owner_id"] = in.OwnerID
 	}
 
-	query += "ORDER BY c.id;"
+	sb.WriteString(" ORDER BY c.id;")
 
-	rows, err := db.Query(ctx, listSchedulesQuery, args)
+	rows, err := db.Query(ctx, sb.String(), args)
 	if err != nil {
 		return nil, err
 	}
@@ -390,7 +390,6 @@ func (h *Handle) ListSchedules(ctx context.Context, in *entity.ListSchedulesInpu
 	}
 
 	schedulesMap := make(map[int64]*entity.Schedule)
-
 	subredditSets := make(map[int64]map[int64]struct{})
 	recipientSets := make(map[int64]map[int64]struct{})
 
@@ -400,7 +399,6 @@ func (h *Handle) ListSchedules(ctx context.Context, in *entity.ListSchedulesInpu
 				ID:         m.ID,
 				Keyword:    m.Keyword,
 				Schedule:   m.Schedule,
-				Status:     m.Status,
 				Recipients: []*entity.Recipient{},
 				Subreddits: []*entity.Subreddit{},
 			}
@@ -473,7 +471,7 @@ func (h *Handle) UpdateSchedule(ctx context.Context, in *entity.UpdateScheduleIn
 		return nil, err
 	}
 
-	return nil, nil
+	return &entity.UpdateScheduleOutput{}, nil
 }
 
 const updateConfigurationQuery = `
@@ -576,7 +574,7 @@ func (h *Handle) syncRecipients(ctx context.Context, tx pgx.Tx, configurationID 
 		return fmt.Errorf("failed to collect existing recipients: %w", err)
 	}
 
-	desiredIDSet := make(map[int64]struct{}, len(existingIDs))
+	desiredIDSet := make(map[int64]struct{}, len(recipients))
 	for _, id := range existingIDs {
 		desiredIDSet[id] = struct{}{}
 	}

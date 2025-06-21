@@ -3,6 +3,7 @@ BEGIN;
 CREATE TABLE IF NOT EXISTS configuration
 (
     id              BIGINT    NOT NULL,
+    owner_id        BIGINT    NOT NULL DEFAULT 0,
     keyword         TEXT      NOT NULL,
     schedule        TEXT      NOT NULL DEFAULT '0 0 * * *',
     created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -30,7 +31,7 @@ CREATE INDEX IF NOT EXISTS idx_subreddit_configuration_configuration_id
 CREATE TABLE IF NOT EXISTS subreddit_configuration_state
 (
     subreddit_configuration_id BIGINT UNIQUE NOT NULL,
-    before                     TEXT          NOT NULL,
+    last_post                  TEXT          NOT NULL,
     last_updated_at            TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (subreddit_configuration_id) REFERENCES subreddit_configuration (id) ON DELETE CASCADE
 );

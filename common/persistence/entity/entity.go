@@ -90,7 +90,6 @@ type (
 		Keyword    string       `json:"keyword"`
 		Schedule   string       `json:"schedule"`
 		OwnerID    int64        `json:"owner_id"`
-		Status     string       `json:"status"`
 		Recipients []*Recipient `json:"recipients"`
 		Subreddits []*Subreddit `json:"subreddits,omitempty"`
 	}

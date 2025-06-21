@@ -8,6 +8,7 @@ import (
 	_ "github.com/tursodatabase/go-libsql"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 type Handle struct {
@@ -23,6 +24,13 @@ func NewHandle(ctx context.Context, config *config.Persistence) (*Handle, error)
 	}
 
 	handle := &Handle{}
+
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	if err = db.PingContext(ctx); err != nil {
+		return nil, err
+	}
 
 	handle.dbPtr.Store(db)
 	handle.running.Store(true)

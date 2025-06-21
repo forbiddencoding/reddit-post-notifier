@@ -27,6 +27,13 @@ func NewHandle(ctx context.Context, config *config.Persistence) (*Handle, error)
 	db.SetMaxOpenConns(10)
 	db.SetMaxIdleConns(10)
 
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	
+	if err = db.PingContext(ctx); err != nil {
+		return nil, err
+	}
+
 	handle := &Handle{}
 
 	handle.dbPtr.Store(db)
