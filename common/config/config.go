@@ -34,9 +34,6 @@ type (
 		GMail         struct {
 			AppPassword string `koanf:"appPassword" validate:"required_if=Provider gmail"`
 		} `koanf:"gmail" validate:"required_if=Provider gmail"`
-		Resend struct {
-			APIKey string `koanf:"apiKey" validate:"required_if=Provider resend"`
-		} `koanf:"resend" validate:"required_if=Provider resend"`
 	}
 
 	Server struct {

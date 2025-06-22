@@ -3,7 +3,7 @@ BEGIN;
 CREATE TABLE IF NOT EXISTS configuration
 (
     id              BIGINT    NOT NULL,
-    owner_id        BIGINT    NOT NULL DEFAULT 0,
+    owner_id        BIGINT    NOT NULL DEFAULT 0, /* owner_id could be used for a multi-user application */
     keyword         TEXT      NOT NULL,
     schedule        TEXT      NOT NULL DEFAULT '0 0 * * *',
     created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -40,8 +40,7 @@ CREATE TABLE IF NOT EXISTS recipients
 (
     id               BIGINT    NOT NULL,
     configuration_id BIGINT    NOT NULL,
-    type             TEXT      NOT NULL DEFAULT 'email',
-    value            TEXT      NOT NULL,
+    address          TEXT      NOT NULL,
     created_at       TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     last_updated_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (id),

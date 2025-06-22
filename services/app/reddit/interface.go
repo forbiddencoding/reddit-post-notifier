@@ -2,9 +2,8 @@ package reddit
 
 type (
 	Recipient struct {
-		ID            int64  `json:"id"`
-		Type          string `json:"type"`
-		Configuration string `json:"configuration"`
+		ID      int64  `json:"id"`
+		Address string `json:"address"`
 	}
 
 	Subreddit struct {

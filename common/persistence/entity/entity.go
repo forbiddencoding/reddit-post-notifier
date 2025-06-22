@@ -2,9 +2,8 @@ package entity
 
 type (
 	Recipient struct {
-		ID    int64  `json:"id"`
-		Type  string `json:"type"`
-		Value string `json:"value"`
+		ID      int64  `json:"id"`
+		Address string `json:"address"`
 	}
 
 	Subreddit struct {
@@ -46,9 +45,8 @@ type (
 	}
 
 	CreateScheduleRecipient struct {
-		ID    int64  `json:"id"`
-		Type  string `json:"type"`
-		Value string `json:"value"`
+		ID      int64  `json:"id"`
+		Address string `json:"address"`
 	}
 
 	CreateScheduleInput struct {

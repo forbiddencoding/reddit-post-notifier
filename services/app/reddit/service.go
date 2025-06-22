@@ -58,9 +58,8 @@ func (s *Service) CreateSchedule(ctx context.Context, in *CreateScheduleInput) (
 		}
 
 		recipients = append(recipients, &entity.CreateScheduleRecipient{
-			ID:    recipientID,
-			Type:  recipient.Type,
-			Value: recipient.Configuration,
+			ID:      recipientID,
+			Address: recipient.Address,
 		})
 	}
 
@@ -106,7 +105,10 @@ func (s *Service) CreateSchedule(ctx context.Context, in *CreateScheduleInput) (
 		return nil, err
 	}
 
-	return nil, nil
+	return &CreateScheduleOutput{
+		Created:    true,
+		ScheduleID: id,
+	}, nil
 }
 
 func (s *Service) GetSchedule(ctx context.Context, in *GetScheduleInput) (*GetScheduleOutput, error) {
@@ -133,8 +135,8 @@ func (s *Service) GetSchedule(ctx context.Context, in *GetScheduleInput) (*GetSc
 
 	for _, recipient := range schedule.Recipients {
 		recipients = append(recipients, &Recipient{
-			Type:          recipient.Type,
-			Configuration: recipient.Value,
+			ID:      recipient.ID,
+			Address: recipient.Address,
 		})
 	}
 
@@ -164,9 +166,8 @@ func (s *Service) UpdateSchedule(ctx context.Context, in *UpdateScheduleInput) (
 		}
 
 		recipients = append(recipients, &entity.Recipient{
-			ID:    id,
-			Type:  recipient.Type,
-			Value: recipient.Configuration,
+			ID:      id,
+			Address: recipient.Address,
 		})
 	}
 
@@ -199,6 +200,10 @@ func (s *Service) UpdateSchedule(ctx context.Context, in *UpdateScheduleInput) (
 	}
 
 	handle := s.temporalClient.ScheduleClient().GetHandle(ctx, fmt.Sprintf("reddit_posts::%d", in.ID))
+
+	if _, err = handle.Describe(ctx); err != nil {
+		return nil, fmt.Errorf("failed to describe schedule: %w", err)
+	}
 
 	updateSchedule := func(input client.ScheduleUpdateInput) (*client.ScheduleUpdate, error) {
 		schedule := input.Description.Schedule
@@ -260,9 +265,8 @@ func (s *Service) ListSchedules(ctx context.Context, in *ListSchedulesInput) (*L
 		recipients := make([]*Recipient, 0, len(schedule.Recipients))
 		for _, recipient := range schedule.Recipients {
 			recipients = append(recipients, &Recipient{
-				ID:            recipient.ID,
-				Type:          recipient.Type,
-				Configuration: recipient.Value,
+				ID:      recipient.ID,
+				Address: recipient.Address,
 			})
 		}
 

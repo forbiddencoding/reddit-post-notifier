@@ -94,33 +94,15 @@ func DigestWorkflow(ctx workflow.Context, in *DigestWorkflowInput) (*DigestWorkf
 		},
 	})
 
-	var err error
-
-	selector := workflow.NewSelector(ctx)
-	for _, recipient := range configuration.Recipients {
-		future := workflow.ExecuteActivity(ctx, SendNotificationActivityName, &SendNotificationInput{
-			Posts:     posts,
-			Recipient: recipient,
-		})
-
-		selector.AddFuture(future, func(f workflow.Future) {
-			if fErr := f.Get(ctx, nil); fErr != nil {
-				logger.Error("Failed to send notification", "error", fErr, "id", recipient.ID)
-				err = fErr
-				return
-			}
-		})
+	if err := workflow.ExecuteActivity(ctx, SendNotificationActivityName, &SendNotificationInput{
+		Posts:      posts,
+		Recipients: configuration.Recipients,
+	}).Get(ctx, nil); err != nil {
+		logger.Error("Failed to send notification", "error", err)
+		return nil, err
 	}
 
-	for i := 0; i < len(configuration.Recipients); i++ {
-		selector.Select(ctx)
-		if err != nil {
-			logger.Error("Failed to send notification", "error", err)
-			return nil, err
-		}
-	}
-
-	if err = workflow.ExecuteActivity(ctx, UpdateStateActivityName, &UpdateStateInput{
+	if err := workflow.ExecuteActivity(ctx, UpdateStateActivityName, &UpdateStateInput{
 		Subreddits: subreddits,
 	}).Get(ctx, nil); err != nil {
 		logger.Error("Failed to update state", "error", err)

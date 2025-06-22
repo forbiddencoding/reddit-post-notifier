@@ -3,7 +3,7 @@ package reddit
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/forbiddencoding/reddit-post-notifier/common/config"
 	"github.com/forbiddencoding/reddit-post-notifier/common/mail"
@@ -12,11 +12,7 @@ import (
 	"github.com/forbiddencoding/reddit-post-notifier/common/reddit"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/temporal"
-	"html"
 	"html/template"
-	"net/http"
-	"net/url"
-	"strings"
 	"time"
 )
 
@@ -29,7 +25,6 @@ type Activities struct {
 func NewActivities(ctx context.Context, persistence persistence.Persistence, conf *config.Config) (*Activities, error) {
 	client := reddit.New(ctx, conf.Reddit.ClientID, conf.Reddit.ClientSecret, conf.Reddit.UserAgent)
 
-	// TODO: maybe use something more generic here or more configurable, i.e. mailer per configuration or a different sink, i.e. discord
 	mailer, err := mail.New(ctx, &conf.Mailer)
 	if err != nil {
 		return nil, err
@@ -110,95 +105,39 @@ func (a *Activities) GetPosts(ctx context.Context, in *GetPostsInput) (*GetPosts
 	logger := activity.GetLogger(ctx)
 	logger.Info("GetPosts started", "subreddit", in.Subreddit.Name, "keyword", in.Keyword)
 
-	req, err := http.NewRequestWithContext(
+	res, err := a.client.GetPosts(
 		ctx,
-		http.MethodGet,
-		fmt.Sprintf("https://oauth.reddit.com/r/%s/search", in.Subreddit.Name),
-		nil,
+		&reddit.GetPostsInput{
+			Keyword:           in.Keyword,
+			Subreddit:         in.Subreddit.Name,
+			Sort:              in.Subreddit.Sort,
+			Before:            in.Subreddit.Before,
+			IncludeNSFW:       in.Subreddit.IncludeNSFW,
+			RestrictSubreddit: in.Subreddit.RestrictSubreddit,
+		},
 	)
 	if err != nil {
+		if errors.Is(err, reddit.RateLimitErr) {
+			logger.Info("GetPosts hit rate limit")
+
+			return nil, temporal.NewApplicationErrorWithOptions("rate limit exceeded", "api", temporal.ApplicationErrorOptions{
+				Cause:        err,
+				NonRetryable: false,
+			})
+		}
 		return nil, err
 	}
-	req.Header.Set("User-Agent", a.client.UserAgent())
-	req.URL.Query().Add("limit", "10")
 
-	r := req.URL.Query()
-	r.Add("q", in.Keyword)
-
-	if in.Subreddit.RestrictSubreddit {
-		r.Add("restrict_sr", "1")
-	}
-
-	if in.Subreddit.IncludeNSFW {
-		r.Add("include_over_18", "on")
-	}
-
-	if in.Subreddit.Before != "" {
-		r.Add("before", in.Subreddit.Before)
-	}
-
-	if in.Subreddit.Sort != "" {
-		r.Add("sort", in.Subreddit.Sort)
-	} else {
-		r.Add("sort", "new")
-	}
-	req.URL.RawQuery = r.Encode()
-
-	resp, err := a.client.Client().Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		_ = resp.Body.Close()
-	}()
-
-	switch resp.StatusCode {
-	case http.StatusTooManyRequests:
-		logger.Info("GetPosts hit rate limit")
-		// Reddit does not return any header or body when the rate limit is reached.
-		// Therefore, the below code sadly does not work as intended.
-		//reset, err := strconv.ParseFloat(resp.Header.Get("X-RateLimit-Reset"), 64)
-		//if err != nil {
-		//	return nil, fmt.Errorf("failed to parse rate limit reset: %w", err)
-		//}
-		//return nil, temporal.NewApplicationErrorWithOptions("rate limit exceeded", "api", temporal.ApplicationErrorOptions{
-		//	NonRetryable:   false,
-		//	Cause:          fmt.Errorf("rate limit exceeded"),
-		//	NextRetryDelay: time.Second * time.Duration(reset),
-		//})
-		return nil, temporal.NewApplicationErrorWithOptions("rate limit exceeded", "api", temporal.ApplicationErrorOptions{
-			Cause:        fmt.Errorf("rate limit exceeded"),
-			NonRetryable: false,
-		})
-	case http.StatusOK:
-		var res reddit.Response
-		if err = json.NewDecoder(resp.Body).Decode(&res); err != nil {
-			return nil, err
-		}
-
-		posts := make([]reddit.Post, 0, len(res.Data.Children))
-		for _, child := range res.Data.Children {
-			posts = append(posts, child.Data)
-		}
-
-		var before string
-		if len(res.Data.Children) > 0 {
-			before = res.Data.Children[0].Data.Name
-		}
-
-		return &GetPostsOutput{
-			Posts:  posts,
-			Before: before,
-		}, nil
-	default:
-		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
-	}
+	return &GetPostsOutput{
+		Posts:  res.Posts,
+		Before: res.Before,
+	}, nil
 }
 
 type (
 	SendNotificationInput struct {
-		Posts     []reddit.Post     `json:"posts"`
-		Recipient *entity.Recipient `json:"recipients"`
+		Posts      []reddit.Post       `json:"posts"`
+		Recipients []*entity.Recipient `json:"recipients"`
 	}
 
 	SendNotificationOutput struct {
@@ -208,57 +147,68 @@ type (
 const SendNotificationActivityName = "send_notification"
 
 func (a *Activities) SendNotification(ctx context.Context, in *SendNotificationInput) (*SendNotificationOutput, error) {
-	switch in.Recipient.Type {
-	case "email":
-		type (
-			recipientConfiguration struct {
-				Recipients []struct {
-					Email string `json:"email"`
-				} `json:"recipients"`
-			}
-		)
-		var recipients recipientConfiguration
-		if err := json.Unmarshal([]byte(in.Recipient.Value), &recipients); err != nil {
-			return nil, err
+	type (
+		PostView struct {
+			ID         string `json:"id"`
+			Title      string `json:"title"`
+			URL        string `json:"url"`
+			Subreddit  string `json:"subreddit"`
+			NSFW       bool   `json:"nsfw"`
+			Spoiler    bool   `json:"spoiler"`
+			Ups        int    `json:"ups"`
+			Downs      int    `json:"downs"`
+			Thumbnail  string `json:"thumbnail"`
+			CreatedStr string `json:"created_str"`
+			Permalink  string `json:"permalink"`
 		}
-		var addresses []string
-		for _, recipient := range recipients.Recipients {
-			addresses = append(addresses, recipient.Email)
-		}
+	)
 
-		// TODO: refactor / remove this from here
-		tmpl, err := template.New("email").ParseFiles("templates/index.html", "templates/post.html")
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse email template: %w", err)
-		}
-
-		var postViews []PostView
-		for _, p := range in.Posts {
-			postViews = append(postViews, NewPostView(p))
-		}
-
-		data := map[string]any{
-			"Title": "New Reddit Posts Notification",
-			"Posts": postViews,
-		}
-
-		var body bytes.Buffer
-		if err = tmpl.ExecuteTemplate(&body, "email", data); err != nil {
-			return nil, fmt.Errorf("failed to execute email template: %w", err)
-		}
-
-		if err = a.mailer.SendMail(
-			ctx,
-			addresses,
-			"New Reddit Posts Notification",
-			body.String(),
-		); err != nil {
-			return nil, fmt.Errorf("failed to send mail: %w", err)
-		}
-		return nil, nil
-	default:
-		return nil, fmt.Errorf("unsupported recipient type: %s", in.Recipient.Type)
+	var addresses []string
+	for _, recipient := range in.Recipients {
+		addresses = append(addresses, recipient.Address)
 	}
+
+	postViews := make([]PostView, 0, len(in.Posts))
+	for _, p := range in.Posts {
+		postViews = append(postViews, PostView{
+			ID:         p.ID,
+			Title:      p.Title,
+			URL:        p.URL,
+			Subreddit:  p.Subreddit,
+			NSFW:       p.NSFW,
+			Spoiler:    p.Spoiler,
+			Ups:        p.Ups,
+			Downs:      p.Downs,
+			Thumbnail:  p.SanitizeThumbnail(),
+			CreatedStr: time.Unix(int64(p.CreatedUTC), 0).Format(time.RFC822),
+			Permalink:  p.GetPermalink(),
+		})
+	}
+
+	data := map[string]any{
+		"Title": "New Reddit Posts Notification",
+		"Posts": postViews,
+	}
+
+	tmpl, err := template.ParseGlob("templates/*.html")
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse email template: %w", err)
+	}
+
+	var body bytes.Buffer
+	if err = tmpl.ExecuteTemplate(&body, "email", data); err != nil {
+		return nil, fmt.Errorf("failed to execute email template: %w", err)
+	}
+
+	if err = a.mailer.SendMail(
+		ctx,
+		addresses,
+		"New Reddit Posts Notification",
+		body.String(),
+	); err != nil {
+		return nil, fmt.Errorf("failed to send mail: %w", err)
+	}
+	return nil, nil
 }
 
 type (
@@ -288,71 +238,4 @@ func (a *Activities) UpdateState(ctx context.Context, in *UpdateStateInput) (*Up
 	}
 
 	return nil, nil
-}
-
-type PostView struct {
-	ID         string
-	Title      string
-	URL        string
-	Subreddit  string
-	NSFW       bool
-	Spoiler    bool
-	Ups        int
-	Downs      int
-	Thumbnail  string
-	CreatedStr string
-	Permalink  string
-}
-
-func FixThumbnailURL(raw string) string {
-	if strings.HasPrefix(raw, "https://www.reddit.com/media?url=") {
-		parsed, err := url.Parse(raw)
-		if err == nil {
-			decoded := parsed.Query().Get("url")
-			if decoded != "" {
-				return decoded
-			}
-		}
-	}
-
-	raw = html.UnescapeString(raw)
-
-	if strings.HasPrefix(raw, "http://") {
-		raw = "https://" + strings.TrimPrefix(raw, "http://")
-	}
-
-	return raw
-}
-
-func IsValidImageURL(u string) bool {
-	u = strings.ToLower(u)
-	return strings.HasSuffix(u, ".jpg") ||
-		strings.HasSuffix(u, ".jpeg") ||
-		strings.HasSuffix(u, ".png") ||
-		strings.HasSuffix(u, ".gif") ||
-		strings.HasPrefix(u, "https://i.redd.it/")
-}
-
-func NewPostView(p reddit.Post) PostView {
-	thumb := FixThumbnailURL(p.Thumbnail)
-	if !IsValidImageURL(thumb) {
-		thumb = "" // discard invalid thumbnails
-	}
-
-	createdTime := time.Unix(int64(p.CreatedUTC), 0).UTC()
-	createdFormatted := createdTime.Format("Jan 2, 2006 15:04 MST")
-
-	return PostView{
-		ID:         p.ID,
-		Title:      p.Title,
-		URL:        p.URL,
-		Subreddit:  p.Subreddit,
-		NSFW:       p.NSFW,
-		Spoiler:    p.Spoiler,
-		Ups:        p.Ups,
-		Downs:      p.Downs,
-		Thumbnail:  thumb,
-		CreatedStr: createdFormatted,
-		Permalink:  fmt.Sprintf("https://www.reddit.com%s", p.Permalink),
-	}
 }

@@ -21,8 +21,7 @@ SELECT
 	sc.restrict_subreddit AS restrict_subreddit,
 	scs.last_post AS before,
 	r.id AS recipient_id,
-	r.type AS type,
-	r.value AS value
+	r.address AS address
 FROM
     configuration c
 JOIN
@@ -83,9 +82,8 @@ func (h *Handle) LoadConfigurationAndState(ctx context.Context, in *entity.LoadC
 		if m.RecipientID.Valid {
 			if _, ok := recipientMap[m.RecipientID.Int64]; !ok {
 				recipientMap[m.RecipientID.Int64] = &entity.Recipient{
-					ID:    m.RecipientID.Int64,
-					Type:  m.Type,
-					Value: m.Value,
+					ID:      m.RecipientID.Int64,
+					Address: m.Address,
 				}
 			}
 		}
@@ -159,8 +157,8 @@ VALUES (@id, @configuration_id, @subreddit, @include_nsfw, @sort, @restrict_subr
 `
 	createScheduleRecipientsQuery = `
 INSERT INTO 
-    recipients (id, configuration_id, type, value)
-VALUES (@id, @configuration_id, @type, @value)`
+    recipients (id, configuration_id, address)
+VALUES (@id, @configuration_id, @address)`
 )
 
 func (h *Handle) CreateSchedule(ctx context.Context, in *entity.CreateScheduleInput) (*entity.CreateScheduleOutput, error) {
@@ -203,8 +201,7 @@ func (h *Handle) CreateSchedule(ctx context.Context, in *entity.CreateScheduleIn
 		args := pgx.NamedArgs{
 			"id":               recipient.ID,
 			"configuration_id": in.ID,
-			"type":             recipient.Type,
-			"value":            recipient.Value,
+			"address":          recipient.Address,
 		}
 		if _, err = tx.Exec(ctx, createScheduleRecipientsQuery, args); err != nil {
 			return nil, err
@@ -229,8 +226,7 @@ SELECT
 	sc.sort AS sort,
 	sc.restrict_subreddit AS restrict_subreddit,
 	r.id AS recipient_id,
-	r.type AS type,
-	r.value AS value
+	r.address AS address
 FROM
     configuration c
 JOIN
@@ -284,9 +280,8 @@ func (h *Handle) GetSchedule(ctx context.Context, in *entity.GetScheduleInput) (
 		if m.RecipientID.Valid {
 			if _, ok := recipientMap[m.RecipientID.Int64]; !ok {
 				recipientMap[m.RecipientID.Int64] = &entity.Recipient{
-					ID:    m.RecipientID.Int64,
-					Type:  m.Type,
-					Value: m.Value,
+					ID:      m.RecipientID.Int64,
+					Address: m.Address,
 				}
 			}
 		}
@@ -347,8 +342,7 @@ SELECT
 	sc.sort AS sort,
 	sc.restrict_subreddit AS restrict_subreddit,
 	r.id AS recipient_id,
-	r.type AS type,
-	r.value AS value
+	r.address AS address
 FROM
     configuration c
 JOIN
@@ -422,9 +416,8 @@ func (h *Handle) ListSchedules(ctx context.Context, in *entity.ListSchedulesInpu
 		if m.RecipientID.Valid {
 			if _, ok := recipientSets[m.ID][m.RecipientID.Int64]; !ok {
 				schedule.Recipients = append(schedule.Recipients, &entity.Recipient{
-					ID:    m.RecipientID.Int64,
-					Type:  m.Type,
-					Value: m.Value,
+					ID:      m.RecipientID.Int64,
+					Address: m.Address,
 				})
 				recipientSets[m.ID][m.RecipientID.Int64] = struct{}{}
 			}
@@ -592,19 +585,17 @@ func (h *Handle) syncRecipients(ctx context.Context, tx pgx.Tx, configurationID 
 	}
 
 	const upsertQ = `
-INSERT INTO recipients (id, configuration_id, type, value)
-VALUES (@id, @configuration_id, @type, @value)
+INSERT INTO recipients (id, configuration_id, address)
+VALUES (@id, @configuration_id, @address)
 ON CONFLICT (id) DO UPDATE SET
-                               type = EXCLUDED.type,
-                               value = EXCLUDED.value
+                               address = EXCLUDED.address
 `
 
 	for _, recipient := range recipients {
 		args := pgx.NamedArgs{
 			"id":               recipient.ID,
 			"configuration_id": configurationID,
-			"type":             recipient.Type,
-			"value":            recipient.Value,
+			"address":          recipient.Address,
 		}
 		batch.Queue(upsertQ, args)
 	}

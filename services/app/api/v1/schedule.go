@@ -28,8 +28,7 @@ func (h *ScheduleHandler) CreateSchedulePost() http.HandlerFunc {
 			RestrictSubreddit bool   `json:"restrict_subreddit"`
 		}
 		recipient struct {
-			Type          string         `json:"type"`
-			Configuration map[string]any `json:"configuration"`
+			Address string `json:"address"`
 		}
 
 		request struct {
@@ -67,15 +66,8 @@ func (h *ScheduleHandler) CreateSchedulePost() http.HandlerFunc {
 		}
 
 		for _, rec := range req.Recipients {
-			conf, err := json.Marshal(rec.Configuration)
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-
 			recipients = append(recipients, &reddit.Recipient{
-				Type:          rec.Type,
-				Configuration: string(conf),
+				Address: rec.Address,
 			})
 		}
 
@@ -158,9 +150,8 @@ func (h *ScheduleHandler) UpdateSchedulePut() http.HandlerFunc {
 			RestrictSubreddit bool   `json:"restrict_subreddit"`
 		}
 		recipient struct {
-			ID            int64          `json:"id,omitzero"`
-			Type          string         `json:"type"`
-			Configuration map[string]any `json:"configuration"`
+			ID      int64  `json:"id,omitzero"`
+			Address string `json:"address"`
 		}
 
 		request struct {
@@ -202,16 +193,9 @@ func (h *ScheduleHandler) UpdateSchedulePut() http.HandlerFunc {
 		}
 
 		for _, rec := range req.Recipients {
-			conf, err := json.Marshal(rec.Configuration)
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-
 			recipients = append(recipients, &reddit.Recipient{
-				ID:            rec.ID,
-				Type:          rec.Type,
-				Configuration: string(conf),
+				ID:      rec.ID,
+				Address: rec.Address,
 			})
 		}
 

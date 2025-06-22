@@ -15,8 +15,7 @@ type (
 		Keyword           string      `db:"keyword"`
 		Before            pgtype.Text `db:"before"`
 		RecipientID       pgtype.Int8 `db:"recipient_id"`
-		Type              string      `db:"type"`
-		Value             string      `db:"value"`
+		Address           string      `db:"address"`
 	}
 
 	GetSchedule struct {
@@ -29,8 +28,7 @@ type (
 		Keyword           string      `db:"keyword"`
 		Schedule          string      `db:"schedule"`
 		RecipientID       pgtype.Int8 `db:"recipient_id"`
-		Type              string      `db:"type"`
-		Value             string      `db:"value"`
+		Address           string      `db:"address"`
 	}
 
 	ListSchedulesModel struct {
@@ -44,7 +42,6 @@ type (
 		Keyword           string      `db:"keyword"`
 		Schedule          string      `db:"schedule"`
 		RecipientID       pgtype.Int8 `db:"recipient_id"`
-		Type              string      `db:"type"`
-		Value             string      `db:"value"`
+		Address           string      `db:"address"`
 	}
 )
