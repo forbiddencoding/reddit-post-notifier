@@ -12,10 +12,10 @@ services:
       DB: postgres12
       DBNAME: temporal
       VISIBILITY_DBNAME: temporal_visibility
-      DB_PORT: 5432
-      POSTGRES_SEEDS: postgres
-      POSTGRES_USER: temporal
-      POSTGRES_PWD: temporal
+      DB_PORT: 3306
+      POSTGRES_SEEDS: mysql
+      POSTGRES_USER: root
+      POSTGRES_PWD: root
       TEMPORAL_ADDRESS: temporal:7233
       TEMPORAL_CLI_ADDRESS: temporal:7233
       DEFAULT_NAMESPACE: reddit-post-notifier
@@ -44,31 +44,16 @@ services:
     ports:
       - '8181:8080'
 
-  postgres:
-    image: postgres:17.4-alpine3.21
-    hostname: postgres
+  mysql:
+    image: mariadb:11.8.2-ubi9
+    hostname: mysql
     networks:
       - reddit-post-notifier
     environment:
-      POSTGRES_DB: main
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      PGDATA: /var/lib/postgresql/data/pgdata
+      MYSQL_DATABASE: root
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_ROOT_HOST: '%'
     volumes:
-      - ./deployments/docker/postgres/initdb.d:/docker-entrypoint-initdb.d
-      - postgres-data:/var/lib/postgresql/data
-    healthcheck:
-      test: pg_isready -U postgres
-      interval: 10s
-      timeout: 10s
-      retries: 10
+      - mysql-data:/var/lib/mysql
     ports:
-      - '5432:5432'
-
-volumes:
-  postgres-data:
-  mysql-data:
-
-networks:
-  reddit-post-notifier:
-    driver: bridge
+      - '3306:3306'
