@@ -115,7 +115,7 @@ func start(ctx context.Context, cmd *cli.Command) error {
 		_ = db.Close(ctx)
 	}()
 
-	registry, err := newServiceRegistry(ctx, conf, temporalClient, db)
+	registry, err := newServiceRegistry(ctx, conf, temporalClient, db, validate)
 	if err != nil {
 		slog.Error("failed to create service registry", slog.Any("error", err))
 		return err
@@ -150,8 +150,14 @@ type (
 	ServiceRegistry map[string]Service
 )
 
-func newServiceRegistry(ctx context.Context, conf *config.Config, temporal client.Client, db persistence.Persistence) (ServiceRegistry, error) {
-	appInstance, err := app.New(conf, temporal, db)
+func newServiceRegistry(
+	ctx context.Context,
+	conf *config.Config,
+	temporal client.Client,
+	db persistence.Persistence,
+	validator *validator.Validate,
+) (ServiceRegistry, error) {
+	appInstance, err := app.New(conf, temporal, db, validator)
 	if err != nil {
 		return nil, err
 	}

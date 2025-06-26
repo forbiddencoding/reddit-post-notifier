@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"github.com/forbiddencoding/reddit-post-notifier/services/app/reddit"
 	"github.com/go-chi/chi/v5"
+	"github.com/go-playground/validator/v10"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -11,31 +12,36 @@ import (
 
 type ScheduleHandler struct {
 	scheduleService reddit.Servicer
+	validator       *validator.Validate
 }
 
-func NewScheduleHandler(scheduleService reddit.Servicer) *ScheduleHandler {
+func NewScheduleHandler(
+	scheduleService reddit.Servicer,
+	validator *validator.Validate,
+) *ScheduleHandler {
 	return &ScheduleHandler{
 		scheduleService: scheduleService,
+		validator:       validator,
 	}
 }
 
 func (h *ScheduleHandler) CreateSchedulePost() http.HandlerFunc {
 	type (
 		subreddit struct {
-			Subreddit         string `json:"subreddit"`
+			Subreddit         string `json:"subreddit" validate:"required"`
 			IncludeNSFW       bool   `json:"include_nsfw"`
 			Sort              string `json:"sort"`
 			RestrictSubreddit bool   `json:"restrict_subreddit"`
 		}
 		recipient struct {
-			Address string `json:"address"`
+			Address string `json:"address" validate:"required,email"`
 		}
 
 		request struct {
-			Keyword    string       `json:"keyword"`
-			Subreddits []*subreddit `json:"subreddits"`
-			Schedule   string       `json:"schedule"`
-			Recipients []*recipient `json:"recipients"`
+			Keyword    string       `json:"keyword" validate:"required"`
+			Subreddits []*subreddit `json:"subreddits" validate:"required,min=1,max=10"`
+			Schedule   string       `json:"schedule" validate:"required,cron"`
+			Recipients []*recipient `json:"recipients" validate:"required,min=1,max=10"`
 		}
 		response struct {
 			ID int64 `json:"id"`
@@ -47,6 +53,11 @@ func (h *ScheduleHandler) CreateSchedulePost() http.HandlerFunc {
 		var req request
 
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		if err := h.validator.Struct(req); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
@@ -144,21 +155,21 @@ func (h *ScheduleHandler) UpdateSchedulePut() http.HandlerFunc {
 	type (
 		subreddit struct {
 			ID                int64  `json:"id,omitzero"`
-			Subreddit         string `json:"subreddit"`
-			IncludeNSFW       bool   `json:"include_nsfw"`
+			Subreddit         string `json:"subreddit" validate:"required"`
+			IncludeNSFW       bool   `json:"includeNSFW"`
 			Sort              string `json:"sort"`
-			RestrictSubreddit bool   `json:"restrict_subreddit"`
+			RestrictSubreddit bool   `json:"restrictSubreddit"`
 		}
 		recipient struct {
-			ID      int64  `json:"id,omitzero"`
-			Address string `json:"address"`
+			ID      int64  `json:"id"`
+			Address string `json:"address" validate:"required,email"`
 		}
 
 		request struct {
-			Keyword    string       `json:"keyword"`
-			Subreddits []*subreddit `json:"subreddits"`
-			Schedule   string       `json:"schedule"`
-			Recipients []*recipient `json:"recipients"`
+			Keyword    string       `json:"keyword" validate:"required"`
+			Subreddits []*subreddit `json:"subreddits" validate:"required,min=1,max=10"`
+			Schedule   string       `json:"schedule" validate:"required,cron"`
+			Recipients []*recipient `json:"recipients" validate:"required,min=1,max=10"`
 		}
 	)
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -173,6 +184,11 @@ func (h *ScheduleHandler) UpdateSchedulePut() http.HandlerFunc {
 		var req request
 
 		if err = json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		if err = h.validator.Struct(req); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}

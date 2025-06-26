@@ -66,6 +66,7 @@ type (
 	}
 
 	GetScheduleOutput struct {
+		ID         int64        `json:"id"`
 		Keyword    string       `json:"keyword"`
 		Schedule   string       `json:"schedule"`
 		OwnerID    int64        `json:"owner_id"`

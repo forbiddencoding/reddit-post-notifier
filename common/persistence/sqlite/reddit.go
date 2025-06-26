@@ -313,6 +313,7 @@ func (h *Handle) GetSchedule(ctx context.Context, in *entity.GetScheduleInput) (
 	}
 
 	return &entity.GetScheduleOutput{
+		ID:         dbModels[0].ID,
 		Keyword:    dbModels[0].Keyword,
 		Schedule:   dbModels[0].Schedule,
 		Recipients: recipients,

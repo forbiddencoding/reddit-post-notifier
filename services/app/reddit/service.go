@@ -6,8 +6,11 @@ import (
 	"github.com/forbiddencoding/reddit-post-notifier/common/persistence"
 	"github.com/forbiddencoding/reddit-post-notifier/common/persistence/entity"
 	"github.com/forbiddencoding/reddit-post-notifier/services/reddit"
+	"github.com/go-playground/validator/v10"
 	"github.com/sony/sonyflake/v2"
+	"go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/client"
+	"sort"
 )
 
 type (
@@ -23,6 +26,7 @@ type (
 		db             persistence.Persistence
 		temporalClient client.Client
 		sonyflake      *sonyflake.Sonyflake
+		validator      *validator.Validate
 	}
 )
 
@@ -32,15 +36,21 @@ func NewService(
 	db persistence.Persistence,
 	temporalClient client.Client,
 	sonyflake *sonyflake.Sonyflake,
+	validator *validator.Validate,
 ) (Servicer, error) {
 	return &Service{
 		db:             db,
 		temporalClient: temporalClient,
 		sonyflake:      sonyflake,
+		validator:      validator,
 	}, nil
 }
 
 func (s *Service) CreateSchedule(ctx context.Context, in *CreateScheduleInput) (*CreateScheduleOutput, error) {
+	if err := s.validator.Struct(in); err != nil {
+		return nil, err
+	}
+
 	id, err := s.sonyflake.NextID()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate ID: %w", err)
@@ -80,6 +90,7 @@ func (s *Service) CreateSchedule(ctx context.Context, in *CreateScheduleInput) (
 	_, err = s.db.CreateSchedule(ctx, &entity.CreateScheduleInput{
 		ID:         id,
 		Keyword:    in.Keyword,
+		Schedule:   in.Schedule,
 		OwnerID:    0,
 		Recipients: recipients,
 		Subreddits: subreddits,
@@ -140,10 +151,39 @@ func (s *Service) GetSchedule(ctx context.Context, in *GetScheduleInput) (*GetSc
 		})
 	}
 
+	handle := s.temporalClient.ScheduleClient().GetHandle(ctx, fmt.Sprintf("reddit_posts::%d", in.ScheduleID))
+	desc, err := handle.Describe(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	var status = "NONE"
+
+	if len(desc.Info.RecentActions) > 0 {
+		exec, err := s.temporalClient.DescribeWorkflowExecution(ctx, desc.Info.RecentActions[0].StartWorkflowResult.WorkflowID, "")
+		if err != nil {
+			return nil, err
+		}
+
+		switch exec.WorkflowExecutionInfo.Status {
+		case enums.WORKFLOW_EXECUTION_STATUS_RUNNING:
+			status = "RUNNING"
+		case enums.WORKFLOW_EXECUTION_STATUS_COMPLETED:
+			status = "COMPLETED"
+		case enums.WORKFLOW_EXECUTION_STATUS_FAILED:
+			status = "FAILED"
+		}
+	}
+
 	return &GetScheduleOutput{
-		Keyword:    schedule.Keyword,
-		Subreddits: subreddits,
-		Recipients: recipients,
+		ID:                  in.ScheduleID,
+		Keyword:             schedule.Keyword,
+		Subreddits:          subreddits,
+		Schedule:            schedule.Schedule,
+		Recipients:          recipients,
+		NextActionTimes:     desc.Info.NextActionTimes,
+		Paused:              desc.Schedule.State.Paused,
+		LastExecutionStatus: status,
 	}, nil
 }
 
@@ -151,6 +191,10 @@ func (s *Service) GetSchedule(ctx context.Context, in *GetScheduleInput) (*GetSc
 // a great use case for a temporal workflow as this would guarantee that a possible cron expression change is properly
 // stored in the database and set in the temporal schedule.
 func (s *Service) UpdateSchedule(ctx context.Context, in *UpdateScheduleInput) (*UpdateScheduleOutput, error) {
+	if err := s.validator.Struct(in); err != nil {
+		return nil, err
+	}
+
 	var (
 		recipients = make([]*entity.Recipient, 0, len(in.Recipients))
 		subreddits = make([]*entity.Subreddit, 0, len(in.Subreddits))
@@ -271,6 +315,7 @@ func (s *Service) ListSchedules(ctx context.Context, in *ListSchedulesInput) (*L
 		}
 
 		schedules = append(schedules, &Schedule{
+			ID:         schedule.ID,
 			Keyword:    schedule.Keyword,
 			Subreddits: subreddits,
 			Schedule:   schedule.Schedule,
@@ -278,6 +323,10 @@ func (s *Service) ListSchedules(ctx context.Context, in *ListSchedulesInput) (*L
 			OwnerID:    schedule.OwnerID,
 		})
 	}
+
+	sort.Slice(schedules, func(i, j int) bool {
+		return schedules[i].ID > schedules[j].ID
+	})
 
 	return &ListSchedulesOutput{
 		Schedules: schedules,

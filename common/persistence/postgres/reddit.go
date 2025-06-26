@@ -298,6 +298,7 @@ func (h *Handle) GetSchedule(ctx context.Context, in *entity.GetScheduleInput) (
 	}
 
 	return &entity.GetScheduleOutput{
+		ID:         dbModels[0].ID,
 		Keyword:    keyword,
 		Schedule:   schedule,
 		Recipients: recipients,
