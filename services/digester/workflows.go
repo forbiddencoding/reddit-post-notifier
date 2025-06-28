@@ -1,8 +1,10 @@
-package reddit
+package digester
 
 import (
 	"fmt"
-	"github.com/forbiddencoding/reddit-post-notifier/common/reddit"
+	"github.com/forbiddencoding/reddit-post-notifier/common/persistence/entity"
+	redditSDK "github.com/forbiddencoding/reddit-post-notifier/common/reddit"
+	"github.com/forbiddencoding/reddit-post-notifier/services/redditor"
 	"go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
@@ -23,6 +25,7 @@ func DigestWorkflow(ctx workflow.Context, in *DigestWorkflowInput) (*DigestWorkf
 	logger.Info("DigestWorkflow started")
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		TaskQueue:           "digest",
 		StartToCloseTimeout: 10 * time.Second,
 		RetryPolicy: &temporal.RetryPolicy{
 			InitialInterval:    10 * time.Second,
@@ -45,8 +48,8 @@ func DigestWorkflow(ctx workflow.Context, in *DigestWorkflowInput) (*DigestWorkf
 	}
 
 	var (
-		subreddits = make([]*Subreddit, 0, len(configuration.Subreddits))
-		posts      []reddit.Post
+		subreddits = make([]*entity.Subreddit, 0, len(configuration.Subreddits))
+		posts      []redditSDK.Post
 	)
 
 	for i := 0; i < len(configuration.Subreddits); i++ {
@@ -56,7 +59,7 @@ func DigestWorkflow(ctx workflow.Context, in *DigestWorkflowInput) (*DigestWorkf
 			TaskQueue:                "reddit",
 			WorkflowID:               fmt.Sprintf("reddit_post_workflow::%s::%s", configuration.Keyword, subreddit.Name),
 			ParentClosePolicy:        enums.PARENT_CLOSE_POLICY_TERMINATE,
-			WorkflowExecutionTimeout: 5 * time.Minute,
+			WorkflowExecutionTimeout: 15 * time.Minute,
 			RetryPolicy: &temporal.RetryPolicy{
 				MaximumAttempts:    5,
 				InitialInterval:    time.Second,
@@ -65,8 +68,8 @@ func DigestWorkflow(ctx workflow.Context, in *DigestWorkflowInput) (*DigestWorkf
 			},
 		})
 
-		var result PostWorkflowOutput
-		err := workflow.ExecuteChildWorkflow(childCtx, PostWorkflow, &PostWorkflowInput{
+		var result redditor.PostWorkflowOutput
+		err := workflow.ExecuteChildWorkflow(childCtx, redditor.PostWorkflow, &redditor.PostWorkflowInput{
 			Keyword:   configuration.Keyword,
 			Subreddit: subreddit,
 		}).Get(ctx, &result)
@@ -77,14 +80,15 @@ func DigestWorkflow(ctx workflow.Context, in *DigestWorkflowInput) (*DigestWorkf
 
 		if len(result.Posts) > 0 {
 			posts = append(posts, result.Posts...)
-			subreddits = append(subreddits, &Subreddit{
-				SubredditID: subreddit.SubredditID,
-				Before:      result.Subreddit.Before,
+			subreddits = append(subreddits, &entity.Subreddit{
+				ID:     subreddit.ID,
+				Before: result.Subreddit.Before,
 			})
 		}
 	}
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		TaskQueue:           "digest",
 		StartToCloseTimeout: time.Minute,
 		RetryPolicy: &temporal.RetryPolicy{
 			InitialInterval:    5 * time.Second,
@@ -110,60 +114,4 @@ func DigestWorkflow(ctx workflow.Context, in *DigestWorkflowInput) (*DigestWorkf
 	}
 
 	return nil, nil
-}
-
-type (
-	PostWorkflowInput struct {
-		Keyword   string
-		Subreddit *Subreddit `json:"subreddit"`
-		Posts     []reddit.Post
-	}
-
-	PostWorkflowOutput struct {
-		Subreddit *Subreddit    `json:"subreddit"`
-		Posts     []reddit.Post `json:"posts"`
-	}
-)
-
-func PostWorkflow(ctx workflow.Context, in *PostWorkflowInput) (*PostWorkflowOutput, error) {
-	logger := workflow.GetLogger(ctx)
-	logger.Info("PostsWorkflow started")
-
-	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: time.Minute,
-		RetryPolicy: &temporal.RetryPolicy{
-			InitialInterval:    10 * time.Second,
-			BackoffCoefficient: 2.0,
-			MaximumInterval:    2 * time.Minute,
-			MaximumAttempts:    5,
-		},
-	})
-
-	var result GetPostsOutput
-	err := workflow.ExecuteActivity(ctx, GetPostsActivityName, &GetPostsInput{
-		Keyword:   in.Keyword,
-		Subreddit: in.Subreddit,
-	}).Get(ctx, &result)
-	if err != nil {
-		logger.Error("Failed to get posts", "error", err, "subreddit", in.Subreddit.Name)
-		return nil, err
-	}
-
-	input := PostWorkflowInput{
-		Keyword:   in.Keyword,
-		Subreddit: in.Subreddit,
-		Posts:     in.Posts,
-	}
-
-	if len(result.Posts) > 0 {
-		input.Posts = append(in.Posts, result.Posts...)
-		input.Subreddit.Before = result.Before
-	} else {
-		return &PostWorkflowOutput{
-			Subreddit: in.Subreddit,
-			Posts:     in.Posts,
-		}, nil
-	}
-
-	return nil, workflow.NewContinueAsNewError(ctx, PostWorkflow, &input)
 }

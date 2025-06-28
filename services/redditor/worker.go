@@ -1,9 +1,8 @@
-package reddit
+package redditor
 
 import (
 	"context"
 	"github.com/forbiddencoding/reddit-post-notifier/common/config"
-	"github.com/forbiddencoding/reddit-post-notifier/common/persistence"
 	"github.com/forbiddencoding/reddit-post-notifier/common/temporalx"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/client"
@@ -15,21 +14,18 @@ type Worker struct {
 	worker worker.Worker
 }
 
-func New(ctx context.Context, client client.Client, persistence persistence.Persistence, conf *config.Config) (*Worker, error) {
-	options := worker.Options{}
+func New(ctx context.Context, client client.Client, conf *config.Config) (*Worker, error) {
+	options := worker.Options{
+		WorkerActivitiesPerSecond: 0.6,
+	}
 
 	w := worker.New(client, "reddit", options)
 	worker.EnableVerboseLogging(false)
 
-	activities, err := NewActivities(ctx, persistence, conf)
+	activities, err := NewActivities(ctx, conf)
 	if err != nil {
 		return nil, err
 	}
-
-	w.RegisterWorkflowWithOptions(DigestWorkflow, workflow.RegisterOptions{Name: "digest"})
-	w.RegisterActivityWithOptions(activities.LoadConfigurationAndState, activity.RegisterOptions{Name: LoadConfigurationAndStateActivityName})
-	w.RegisterActivityWithOptions(activities.SendNotification, activity.RegisterOptions{Name: SendNotificationActivityName})
-	w.RegisterActivityWithOptions(activities.UpdateState, activity.RegisterOptions{Name: UpdateStateActivityName})
 
 	w.RegisterWorkflowWithOptions(PostWorkflow, workflow.RegisterOptions{Name: "post"})
 	w.RegisterActivityWithOptions(activities.GetPosts, activity.RegisterOptions{Name: GetPostsActivityName})

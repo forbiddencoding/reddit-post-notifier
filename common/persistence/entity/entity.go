@@ -12,7 +12,7 @@ type (
 		IncludeNSFW       bool   `json:"include_nsfw"`
 		Sort              string `json:"sort"`
 		RestrictSubreddit bool   `json:"restrict_subreddit"`
-		After             string `json:"after,omitzero"`
+		Before            string `json:"before,omitzero"`
 	}
 
 	LoadConfigurationAndStateInput struct {

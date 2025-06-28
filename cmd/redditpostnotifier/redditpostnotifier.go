@@ -9,7 +9,8 @@ import (
 	"github.com/forbiddencoding/reddit-post-notifier/common/server"
 	"github.com/forbiddencoding/reddit-post-notifier/services/app"
 	"github.com/forbiddencoding/reddit-post-notifier/services/app/api"
-	"github.com/forbiddencoding/reddit-post-notifier/services/reddit"
+	"github.com/forbiddencoding/reddit-post-notifier/services/digester"
+	"github.com/forbiddencoding/reddit-post-notifier/services/redditor"
 	"github.com/go-playground/validator/v10"
 	"github.com/urfave/cli/v3"
 	"go.temporal.io/sdk/client"
@@ -25,7 +26,7 @@ import (
 
 func BuildCLI() *cli.Command {
 	return &cli.Command{
-		Name:  "reddit post notifier",
+		Name:  "digester post notifier",
 		Usage: "rpn",
 		Flags: []cli.Flag{
 			&cli.StringFlag{
@@ -37,12 +38,12 @@ func BuildCLI() *cli.Command {
 		Commands: []*cli.Command{
 			{
 				Name:  "start",
-				Usage: "start reddit post notifier services",
+				Usage: "start digester post notifier services",
 				Flags: []cli.Flag{
 					&cli.StringFlag{
 						Name:    "services",
 						Aliases: []string{"s"},
-						Usage:   "service(s) to start reddit post notifier services",
+						Usage:   "service(s) to start digester post notifier services",
 						Value:   strings.Join(config.DefaultServices(), ","),
 					},
 				},
@@ -168,14 +169,22 @@ func newServiceRegistry(
 
 	// ---
 
-	workerInstance, err := reddit.New(ctx, temporal, db, conf)
+	digestWorkerInstance, err := digester.New(ctx, temporal, db, conf)
+	if err != nil {
+		return nil, err
+	}
+
+	// ---
+
+	redditWorkerInstance, err := redditor.New(ctx, temporal, conf)
 	if err != nil {
 		return nil, err
 	}
 
 	registry := ServiceRegistry{
 		"app":    appServer,
-		"worker": workerInstance,
+		"digest": digestWorkerInstance,
+		"reddit": redditWorkerInstance,
 	}
 	return registry, nil
 }

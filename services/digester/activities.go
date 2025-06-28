@@ -1,37 +1,30 @@
-package reddit
+package digester
 
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"github.com/forbiddencoding/reddit-post-notifier/common/config"
 	"github.com/forbiddencoding/reddit-post-notifier/common/mail"
 	"github.com/forbiddencoding/reddit-post-notifier/common/persistence"
 	"github.com/forbiddencoding/reddit-post-notifier/common/persistence/entity"
 	"github.com/forbiddencoding/reddit-post-notifier/common/reddit"
-	"go.temporal.io/sdk/activity"
-	"go.temporal.io/sdk/temporal"
 	"html/template"
 	"time"
 )
 
 type Activities struct {
-	client      *reddit.Client
 	mailer      mail.Mailer
 	persistence persistence.Persistence
 }
 
 func NewActivities(ctx context.Context, persistence persistence.Persistence, conf *config.Config) (*Activities, error) {
-	client := reddit.New(ctx, conf.Reddit.ClientID, conf.Reddit.ClientSecret, conf.Reddit.UserAgent)
-
 	mailer, err := mail.New(ctx, &conf.Mailer)
 	if err != nil {
 		return nil, err
 	}
 
 	return &Activities{
-		client:      client,
 		mailer:      mailer,
 		persistence: persistence,
 	}, nil
@@ -45,7 +38,7 @@ type (
 	LoadConfigurationAndStateOutput struct {
 		Keyword    string              `json:"keyword"`
 		Recipients []*entity.Recipient `json:"recipients"`
-		Subreddits []*Subreddit        `json:"subreddits,omitempty"`
+		Subreddits []*entity.Subreddit `json:"subreddits,omitempty"`
 	}
 )
 
@@ -59,15 +52,15 @@ func (a *Activities) LoadConfigurationAndState(ctx context.Context, in *LoadConf
 		return nil, err
 	}
 
-	subreddits := make([]*Subreddit, 0, len(state.Subreddits))
+	subreddits := make([]*entity.Subreddit, 0, len(state.Subreddits))
 	for _, sr := range state.Subreddits {
-		subreddits = append(subreddits, &Subreddit{
-			SubredditID:       sr.ID,
+		subreddits = append(subreddits, &entity.Subreddit{
+			ID:                sr.ID,
 			Name:              sr.Name,
 			IncludeNSFW:       sr.IncludeNSFW,
 			Sort:              sr.Sort,
 			RestrictSubreddit: sr.RestrictSubreddit,
-			Before:            sr.After,
+			Before:            sr.Before,
 		})
 	}
 
@@ -75,62 +68,6 @@ func (a *Activities) LoadConfigurationAndState(ctx context.Context, in *LoadConf
 		Keyword:    state.Keyword,
 		Subreddits: subreddits,
 		Recipients: state.Recipients,
-	}, nil
-}
-
-type (
-	Subreddit struct {
-		SubredditID       int64  `json:"subreddit_id"`
-		Name              string `json:"name"`
-		IncludeNSFW       bool   `json:"include_nsfw"`
-		Sort              string `json:"sort"`
-		RestrictSubreddit bool   `json:"restrict_subreddit"`
-		Before            string `json:"before,omitzero"`
-	}
-
-	GetPostsInput struct {
-		Keyword   string     `json:"keyword"`
-		Subreddit *Subreddit `json:"subreddit"`
-	}
-
-	GetPostsOutput struct {
-		Posts  []reddit.Post `json:"posts"`
-		Before string        `json:"before,omitzero"`
-	}
-)
-
-const GetPostsActivityName = "get_posts"
-
-func (a *Activities) GetPosts(ctx context.Context, in *GetPostsInput) (*GetPostsOutput, error) {
-	logger := activity.GetLogger(ctx)
-	logger.Info("GetPosts started", "subreddit", in.Subreddit.Name, "keyword", in.Keyword)
-
-	res, err := a.client.GetPosts(
-		ctx,
-		&reddit.GetPostsInput{
-			Keyword:           in.Keyword,
-			Subreddit:         in.Subreddit.Name,
-			Sort:              in.Subreddit.Sort,
-			Before:            in.Subreddit.Before,
-			IncludeNSFW:       in.Subreddit.IncludeNSFW,
-			RestrictSubreddit: in.Subreddit.RestrictSubreddit,
-		},
-	)
-	if err != nil {
-		if errors.Is(err, reddit.RateLimitErr) {
-			logger.Info("GetPosts hit rate limit")
-
-			return nil, temporal.NewApplicationErrorWithOptions("rate limit exceeded", "api", temporal.ApplicationErrorOptions{
-				Cause:        err,
-				NonRetryable: false,
-			})
-		}
-		return nil, err
-	}
-
-	return &GetPostsOutput{
-		Posts:  res.Posts,
-		Before: res.Before,
 	}, nil
 }
 
@@ -213,7 +150,7 @@ func (a *Activities) SendNotification(ctx context.Context, in *SendNotificationI
 
 type (
 	UpdateStateInput struct {
-		Subreddits []*Subreddit `json:"subreddits"`
+		Subreddits []*entity.Subreddit `json:"subreddits"`
 	}
 
 	UpdateStateOutput struct {
@@ -226,7 +163,7 @@ func (a *Activities) UpdateState(ctx context.Context, in *UpdateStateInput) (*Up
 	values := make([]*entity.UpdateStateValue, 0, len(in.Subreddits))
 	for _, sr := range in.Subreddits {
 		values = append(values, &entity.UpdateStateValue{
-			SubredditConfigurationID: sr.SubredditID,
+			SubredditConfigurationID: sr.ID,
 			Before:                   sr.Before,
 		})
 	}

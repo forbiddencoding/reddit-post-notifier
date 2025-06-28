@@ -73,7 +73,7 @@ func (h *Handle) LoadConfigurationAndState(ctx context.Context, in *entity.LoadC
 			}
 
 			if m.Before.Valid {
-				subreddit.After = m.Before.String
+				subreddit.Before = m.Before.String
 			}
 
 			subredditMap[m.SubredditID] = subreddit

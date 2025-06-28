@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"github.com/forbiddencoding/reddit-post-notifier/common/persistence"
 	"github.com/forbiddencoding/reddit-post-notifier/common/persistence/entity"
-	"github.com/forbiddencoding/reddit-post-notifier/services/reddit"
+	"github.com/forbiddencoding/reddit-post-notifier/services/digester"
 	"github.com/go-playground/validator/v10"
 	"github.com/sony/sonyflake/v2"
 	"go.temporal.io/api/enums/v1"
@@ -102,11 +102,11 @@ func (s *Service) CreateSchedule(ctx context.Context, in *CreateScheduleInput) (
 	_, err = s.temporalClient.ScheduleClient().Create(ctx, client.ScheduleOptions{
 		ID: fmt.Sprintf("reddit_posts::%d", id),
 		Action: &client.ScheduleWorkflowAction{
-			Workflow: reddit.DigestWorkflow,
-			Args: []any{&reddit.DigestWorkflowInput{
+			Workflow: digester.DigestWorkflow,
+			Args: []any{&digester.DigestWorkflowInput{
 				ID: id,
 			}},
-			TaskQueue: "reddit",
+			TaskQueue: "digester",
 		},
 		Spec: client.ScheduleSpec{
 			CronExpressions: []string{in.Schedule},

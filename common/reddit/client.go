@@ -52,7 +52,6 @@ type (
 
 	Response struct {
 		Data struct {
-			After    string `json:"after"`
 			Children []struct {
 				Data Post `json:"data"`
 			} `json:"children"`
