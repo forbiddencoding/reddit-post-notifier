@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"time"
 )
 
 type ScheduleHandler struct {
@@ -104,6 +105,32 @@ func (h *ScheduleHandler) CreateSchedulePost() http.HandlerFunc {
 }
 
 func (h *ScheduleHandler) GetScheduleGet() http.HandlerFunc {
+	type (
+		subreddit struct {
+			ID                int64  `json:"id"`
+			Subreddit         string `json:"subreddit" validate:"required"`
+			IncludeNSFW       bool   `json:"includeNSFW"`
+			Sort              string `json:"sort"`
+			RestrictSubreddit bool   `json:"restrictSubreddit"`
+		}
+
+		recipient struct {
+			ID      int64  `json:"id"`
+			Address string `json:"address" validate:"required,email"`
+		}
+
+		response struct {
+			ID                  int64        `json:"id"`
+			Keyword             string       `json:"keyword"`
+			Subreddits          []*subreddit `json:"subreddits"`
+			Schedule            string       `json:"schedule"`
+			Recipients          []*recipient `json:"recipients"`
+			OwnerID             int64        `json:"ownerID"`
+			NextActionTimes     []time.Time  `json:"nextActionTimes"`
+			Paused              bool         `json:"paused"`
+			LastExecutionStatus string       `json:"lastExecutionStatus"`
+		}
+	)
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 
@@ -113,12 +140,51 @@ func (h *ScheduleHandler) GetScheduleGet() http.HandlerFunc {
 			return
 		}
 
-		res, err := h.scheduleService.GetSchedule(ctx, &reddit.GetScheduleInput{
+		schedule, err := h.scheduleService.GetSchedule(ctx, &reddit.GetScheduleInput{
 			ScheduleID: id,
 		})
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
+		}
+
+		var (
+			subreddits      = make([]*subreddit, 0, len(schedule.Subreddits))
+			recipients      = make([]*recipient, 0, len(schedule.Subreddits))
+			nextActionTimes = make([]time.Time, 0, len(schedule.Subreddits))
+		)
+
+		for _, sub := range schedule.Subreddits {
+			subreddits = append(subreddits, &subreddit{
+				ID:                sub.ID,
+				Subreddit:         sub.Subreddit,
+				IncludeNSFW:       sub.IncludeNSFW,
+				Sort:              sub.Sort,
+				RestrictSubreddit: sub.RestrictSubreddit,
+			})
+		}
+
+		for _, rec := range schedule.Recipients {
+			recipients = append(recipients, &recipient{
+				ID:      rec.ID,
+				Address: rec.Address,
+			})
+		}
+
+		for _, nextActionTime := range schedule.NextActionTimes {
+			nextActionTimes = append(nextActionTimes, nextActionTime)
+		}
+
+		res := response{
+			ID:                  schedule.ID,
+			Keyword:             schedule.Keyword,
+			Subreddits:          subreddits,
+			Schedule:            schedule.Schedule,
+			Recipients:          recipients,
+			OwnerID:             schedule.OwnerID,
+			NextActionTimes:     nextActionTimes,
+			Paused:              schedule.Paused,
+			LastExecutionStatus: schedule.LastExecutionStatus,
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -233,14 +299,77 @@ func (h *ScheduleHandler) UpdateSchedulePut() http.HandlerFunc {
 }
 
 func (h *ScheduleHandler) ListSchedulesGet() http.HandlerFunc {
+	type (
+		subreddit struct {
+			ID                int64  `json:"id"`
+			Subreddit         string `json:"subreddit" validate:"required"`
+			IncludeNSFW       bool   `json:"includeNSFW"`
+			Sort              string `json:"sort"`
+			RestrictSubreddit bool   `json:"restrictSubreddit"`
+		}
+
+		recipient struct {
+			ID      int64  `json:"id"`
+			Address string `json:"address" validate:"required,email"`
+		}
+
+		scheduleForList struct {
+			ID         int64        `json:"id"`
+			Keyword    string       `json:"keyword"`
+			Subreddits []*subreddit `json:"subreddits"`
+			Schedule   string       `json:"schedule"`
+			Recipients []*recipient `json:"recipients"`
+			OwnerID    int64        `json:"ownerID"`
+		}
+
+		response struct {
+			Schedules []*scheduleForList `json:"schedules"`
+		}
+	)
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 
-		res, err := h.scheduleService.ListSchedules(ctx, &reddit.ListSchedulesInput{})
+		list, err := h.scheduleService.ListSchedules(ctx, &reddit.ListSchedulesInput{})
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+
+		var schedules = make([]*scheduleForList, 0, len(list.Schedules))
+		for _, sched := range list.Schedules {
+			var (
+				subreddits = make([]*subreddit, 0, len(sched.Subreddits))
+				recipients = make([]*recipient, 0, len(sched.Recipients))
+			)
+
+			for _, sub := range sched.Subreddits {
+				subreddits = append(subreddits, &subreddit{
+					ID:                sub.ID,
+					Subreddit:         sub.Subreddit,
+					IncludeNSFW:       sub.IncludeNSFW,
+					Sort:              sub.Sort,
+					RestrictSubreddit: sub.RestrictSubreddit,
+				})
+			}
+
+			for _, rec := range sched.Recipients {
+				recipients = append(recipients, &recipient{
+					ID:      rec.ID,
+					Address: rec.Address,
+				})
+			}
+
+			schedules = append(schedules, &scheduleForList{
+				ID:         sched.ID,
+				Keyword:    sched.Keyword,
+				Subreddits: subreddits,
+				Schedule:   sched.Schedule,
+				Recipients: recipients,
+				OwnerID:    sched.OwnerID,
+			})
+		}
+
+		var res = response{Schedules: schedules}
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)

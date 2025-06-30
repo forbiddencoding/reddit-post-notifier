@@ -11,6 +11,7 @@ import (
 	"go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/client"
 	"sort"
+	"strings"
 )
 
 type (
@@ -73,17 +74,20 @@ func (s *Service) CreateSchedule(ctx context.Context, in *CreateScheduleInput) (
 		})
 	}
 
-	for _, subreddit := range in.Subreddits {
+	for _, sub := range in.Subreddits {
 		subredditID, err := s.sonyflake.NextID()
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate ID: %w", err)
 		}
+
+		subreddit := strings.TrimPrefix("r/", sub.Subreddit)
+
 		subreddits = append(subreddits, &entity.CreateScheduleSubreddit{
 			ID:                subredditID,
-			Subreddit:         subreddit.Subreddit,
-			IncludeNSFW:       subreddit.IncludeNSFW,
-			Sort:              subreddit.Sort,
-			RestrictSubreddit: subreddit.RestrictSubreddit,
+			Subreddit:         subreddit,
+			IncludeNSFW:       sub.IncludeNSFW,
+			Sort:              sub.Sort,
+			RestrictSubreddit: sub.RestrictSubreddit,
 		})
 	}
 
@@ -215,20 +219,23 @@ func (s *Service) UpdateSchedule(ctx context.Context, in *UpdateScheduleInput) (
 		})
 	}
 
-	for _, subreddit := range in.Subreddits {
+	for _, sub := range in.Subreddits {
 		id, err := s.sonyflake.NextID()
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate ID: %w", err)
 		}
-		if subreddit.ID != 0 {
-			id = subreddit.ID
+		if sub.ID != 0 {
+			id = sub.ID
 		}
+
+		subreddit := strings.TrimPrefix("r/", sub.Subreddit)
+
 		subreddits = append(subreddits, &entity.Subreddit{
 			ID:                id,
-			Name:              subreddit.Subreddit,
-			IncludeNSFW:       subreddit.IncludeNSFW,
-			Sort:              subreddit.Sort,
-			RestrictSubreddit: subreddit.RestrictSubreddit,
+			Name:              subreddit,
+			IncludeNSFW:       sub.IncludeNSFW,
+			Sort:              sub.Sort,
+			RestrictSubreddit: sub.RestrictSubreddit,
 		})
 	}
 
