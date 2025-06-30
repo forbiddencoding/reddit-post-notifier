@@ -1,0 +1,31 @@
+temporal:
+  hostPort: localhost:7233
+  namespace: reddit-post-notifier
+
+reddit:
+  clientId:
+  clientSecret:
+  redirectUri:
+  userAgent: go:<GITHUB_URL_OF_THE_PROJECT>:v<SEMANTIC_VERSION> (by /u/<YOUR_REDDIT_USERNAME>)
+
+persistence:
+  #  driver: postgres
+  #  dsn: user=postgres password=postgres host=localhost port=5432 dbname=reddit_post_notifier sslmode=disable pool_max_conns=10 pool_max_conn_lifetime=1h
+  ## or
+  #  driver: mysql
+  #  dsn: root:root@tcp(localhost:3306)/reddit_post_notifier
+  ## or
+  #  driver: sqlite
+  #  dsn: file:data/sqlite/local.db?journal_mode=WAL&cache=shared&synchronous=NORMAL
+
+mailer:
+  provider: gmail
+  senderEmail:
+  senderName:
+  subjectPrefix: '[Reddit Post Notifier]'
+  gmail:
+    appPassword:
+
+server:
+  host: 0.0.0.0
+  port: 8080
