@@ -99,6 +99,7 @@ func DigestWorkflow(ctx workflow.Context, in *DigestWorkflowInput) (*DigestWorkf
 	})
 
 	if err := workflow.ExecuteActivity(ctx, SendNotificationActivityName, &SendNotificationInput{
+		Keyword:    configuration.Keyword,
 		Posts:      posts,
 		Recipients: configuration.Recipients,
 	}).Get(ctx, nil); err != nil {

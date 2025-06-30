@@ -73,6 +73,7 @@ func (a *Activities) LoadConfigurationAndState(ctx context.Context, in *LoadConf
 
 type (
 	SendNotificationInput struct {
+		Keyword    string              `json:"keyword"`
 		Posts      []reddit.Post       `json:"posts"`
 		Recipients []*entity.Recipient `json:"recipients"`
 	}
@@ -140,7 +141,7 @@ func (a *Activities) SendNotification(ctx context.Context, in *SendNotificationI
 	if err = a.mailer.SendMail(
 		ctx,
 		addresses,
-		"New Reddit Posts Notification",
+		in.Keyword,
 		body.String(),
 	); err != nil {
 		return nil, fmt.Errorf("failed to send mail: %w", err)

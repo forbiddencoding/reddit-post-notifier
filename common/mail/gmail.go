@@ -24,7 +24,7 @@ func (g *gMailClient) SendMail(ctx context.Context, to []string, subject string,
 	headers := make(map[string]string)
 	headers["From"] = g.config.SenderEmail
 	headers["To"] = strings.Join(to, ", ")
-	headers["Subject"] = subject
+	headers["Subject"] = fmt.Sprintf("%s %s", g.config.SubjectPrefix, subject)
 	headers["MIME-Version"] = "1.0"
 	headers["Content-Type"] = `text/html; charset="UTF-8"`
 

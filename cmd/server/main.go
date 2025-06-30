@@ -1,4 +1,4 @@
-package redditpostnotifier
+package main
 
 import (
 	"bytes"
@@ -16,6 +16,7 @@ import (
 	"go.temporal.io/sdk/client"
 	"go.uber.org/automaxprocs/maxprocs"
 	"golang.org/x/sync/errgroup"
+	"log"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -24,9 +25,21 @@ import (
 	"syscall"
 )
 
-func BuildCLI() *cli.Command {
+func main() {
+	srv := buildCLI()
+
+	if len(os.Args) == 1 {
+		os.Args = append(os.Args, "start")
+	}
+
+	if err := srv.Run(context.Background(), os.Args); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func buildCLI() *cli.Command {
 	return &cli.Command{
-		Name:  "digester post notifier",
+		Name:  "reddit post notifier",
 		Usage: "rpn",
 		Flags: []cli.Flag{
 			&cli.StringFlag{
@@ -38,12 +51,12 @@ func BuildCLI() *cli.Command {
 		Commands: []*cli.Command{
 			{
 				Name:  "start",
-				Usage: "start digester post notifier services",
+				Usage: "start reddit post notifier services",
 				Flags: []cli.Flag{
 					&cli.StringFlag{
 						Name:    "services",
 						Aliases: []string{"s"},
-						Usage:   "service(s) to start digester post notifier services",
+						Usage:   "service(s) to start reddit post notifier services",
 						Value:   strings.Join(config.DefaultServices(), ","),
 					},
 				},
