@@ -1,7 +1,7 @@
 services:
 
   temporal:
-    image: temporalio/auto-setup:1.27.2
+    image: temporalio/auto-setup:1.28.0
     hostname: temporal
     networks:
       - reddit-post-notifier
@@ -34,7 +34,7 @@ services:
       - '7233:7233'
 
   temporal-ui:
-    image: temporalio/ui:v2.37.3
+    image: temporalio/ui:v2.38.3
     hostname: temporal-ui
     networks:
       - reddit-post-notifier
@@ -67,7 +67,6 @@ services:
 
 volumes:
   postgres-data:
-  mysql-data:
 
 networks:
   reddit-post-notifier:

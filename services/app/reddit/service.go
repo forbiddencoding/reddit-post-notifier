@@ -80,7 +80,7 @@ func (s *Service) CreateSchedule(ctx context.Context, in *CreateScheduleInput) (
 			return nil, fmt.Errorf("failed to generate ID: %w", err)
 		}
 
-		subreddit := strings.TrimPrefix("r/", sub.Subreddit)
+		subreddit := strings.TrimPrefix(sub.Subreddit, "r/")
 
 		subreddits = append(subreddits, &entity.CreateScheduleSubreddit{
 			ID:                subredditID,
@@ -110,7 +110,7 @@ func (s *Service) CreateSchedule(ctx context.Context, in *CreateScheduleInput) (
 			Args: []any{&digester.DigestWorkflowInput{
 				ID: id,
 			}},
-			TaskQueue: "digester",
+			TaskQueue: "digest",
 		},
 		Spec: client.ScheduleSpec{
 			CronExpressions: []string{in.Schedule},
@@ -228,7 +228,7 @@ func (s *Service) UpdateSchedule(ctx context.Context, in *UpdateScheduleInput) (
 			id = sub.ID
 		}
 
-		subreddit := strings.TrimPrefix("r/", sub.Subreddit)
+		subreddit := strings.TrimPrefix(sub.Subreddit, "r/")
 
 		subreddits = append(subreddits, &entity.Subreddit{
 			ID:                id,
