@@ -8,6 +8,7 @@ import (
 	"github.com/forbiddencoding/reddit-post-notifier/common/reddit"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/temporal"
+	"time"
 )
 
 type Activities struct {
@@ -52,13 +53,20 @@ func (a *Activities) GetPosts(ctx context.Context, in *GetPostsInput) (*GetPosts
 		},
 	)
 	if err != nil {
-		if errors.Is(err, reddit.RateLimitErr) {
+		var rLErr reddit.RateLimitError
+		if errors.As(err, &rLErr) {
 			logger.Info("GetPosts hit rate limit")
 
-			return nil, temporal.NewApplicationErrorWithOptions("rate limit exceeded", "api", temporal.ApplicationErrorOptions{
+			errOpts := temporal.ApplicationErrorOptions{
 				Cause:        err,
 				NonRetryable: false,
-			})
+			}
+
+			if delay := rLErr.GetReset(); delay > 0 {
+				errOpts.NextRetryDelay = time.Duration(delay) * time.Second
+			}
+
+			return nil, temporal.NewApplicationErrorWithOptions("rate limit exceeded", "api", errOpts)
 		}
 		return nil, err
 	}

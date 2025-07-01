@@ -10,6 +10,7 @@ import (
 	"html"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 )
 
@@ -23,6 +24,7 @@ func New(ctx context.Context, clientID, clientSecret, userAgent string) *Client 
 		ClientID:     clientID,
 		ClientSecret: clientSecret,
 		TokenURL:     "https://www.reddit.com/api/v1/access_token",
+		AuthStyle:    oauth2.AuthStyleInHeader,
 	}
 
 	tokenSrc := conf.TokenSource(ctx)
@@ -73,6 +75,19 @@ type (
 	}
 )
 
+type RateLimitError struct {
+	Message           string
+	SecondsUntilReset int
+}
+
+func (e RateLimitError) Error() string {
+	return "rate limit exceeded"
+}
+
+func (e RateLimitError) GetReset() int {
+	return e.SecondsUntilReset
+}
+
 var RateLimitErr = errors.New("rate limit exceeded")
 
 func (c *Client) GetPosts(ctx context.Context, in *GetPostsInput) (*GetPostsOutput, error) {
@@ -116,6 +131,17 @@ func (c *Client) GetPosts(ctx context.Context, in *GetPostsInput) (*GetPostsOutp
 
 	switch resp.StatusCode {
 	case http.StatusTooManyRequests:
+		rLErr := &RateLimitError{
+			Message: "rate limit exceeded",
+		}
+
+		if reset := resp.Header.Get("X-RateLimit-Reset"); reset != "" {
+			seconds, err := strconv.Atoi(reset)
+			if err == nil {
+				rLErr.SecondsUntilReset = seconds
+			}
+		}
+
 		return nil, RateLimitErr
 	case http.StatusOK:
 		var response Response

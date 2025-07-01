@@ -16,7 +16,10 @@ type Worker struct {
 
 func New(ctx context.Context, client client.Client, conf *config.Config) (*Worker, error) {
 	options := worker.Options{
-		WorkerActivitiesPerSecond: 0.6,
+		// The only activities here is the GetPosts activity. Each activity does exactly one http request, with retries
+		// handled by temporal. A value of 1.67 is equal to 100 req/min. We use 1.6 to try and avoid hitting the rate
+		// limit proactively.
+		WorkerActivitiesPerSecond: 1.6,
 	}
 
 	w := worker.New(client, "reddit", options)
