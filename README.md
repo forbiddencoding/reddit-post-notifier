@@ -41,7 +41,7 @@ Older versions and other compatible SQL databases should work as well, but have 
 
 ### Database Schema
 
-The schema for the database has to be applied manually. The schema can be found in the `schema/sql/reddipostnotifier`
+The schema for the database has to be applied manually. The schema can be found in the `schema/sql/{DATABASE_SYSTEM}/reddipostnotifier`
 directory.
 
 ### Running the Application
