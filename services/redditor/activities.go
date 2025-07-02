@@ -16,7 +16,10 @@ type Activities struct {
 }
 
 func NewActivities(ctx context.Context, conf *config.Config) (*Activities, error) {
-	client := reddit.New(ctx, conf.Reddit.ClientID, conf.Reddit.ClientSecret, conf.Reddit.UserAgent)
+	client, err := reddit.New(ctx, conf.Reddit.ClientID, conf.Reddit.ClientSecret, conf.Reddit.UserAgent)
+	if err != nil {
+		return nil, err
+	}
 
 	return &Activities{
 		client: client,
