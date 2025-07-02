@@ -2,8 +2,9 @@
 
 **Reddit Post Notifier** allows users to create schedules to be notified via E-Mail with new Reddit Posts containing a
 specific keyword from user specified subreddits and the ability to set additional filters. The project uses Temporal for
-the schedules and handle the interaction with the Reddit API (Rate Limiting). The application exposes a REST API for
-CRUD operations. A web frontend for your convenience can be
+custom schedules and to assist in the interaction with the Reddit API (rate limiting and retries).
+
+The application exposes a REST API for CRUD operations. A web frontend for your convenience can be
 found [here](https://github.com/forbiddencoding/reddit-post-notifier-web).
 
 ## Getting Started
@@ -41,8 +42,8 @@ Older versions and other compatible SQL databases should work as well, but have 
 
 ### Database Schema
 
-The schema for the database has to be applied manually. The schema can be found in the `schema/sql/{DATABASE_SYSTEM}/reddipostnotifier`
-directory.
+The schema for the database has to be applied manually. The schema can be found in the
+`schema/sql/{DATABASE_SYSTEM}/reddipostnotifier` directory.
 
 ### Running the Application
 
