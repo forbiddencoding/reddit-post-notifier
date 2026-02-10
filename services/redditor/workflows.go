@@ -1,7 +1,7 @@
 package redditor
 
 import (
-	"github.com/forbiddencoding/reddit-post-notifier/common/persistence/entity"
+	"github.com/forbiddencoding/reddit-post-notifier/common/persistence"
 	"github.com/forbiddencoding/reddit-post-notifier/common/reddit"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
@@ -11,13 +11,13 @@ import (
 type (
 	PostWorkflowInput struct {
 		Keyword   string
-		Subreddit *entity.Subreddit `json:"subreddit"`
-		Posts     []reddit.Post     `json:"posts"`
+		Subreddit *persistence.Subreddit `json:"subreddit"`
+		Posts     []reddit.Post          `json:"posts"`
 	}
 
 	PostWorkflowOutput struct {
-		Subreddit *entity.Subreddit `json:"subreddit"`
-		Posts     []reddit.Post     `json:"posts"`
+		Subreddit *persistence.Subreddit `json:"subreddit"`
+		Posts     []reddit.Post          `json:"posts"`
 	}
 )
 

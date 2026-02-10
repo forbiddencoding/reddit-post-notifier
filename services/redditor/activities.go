@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"github.com/forbiddencoding/reddit-post-notifier/common/config"
-	"github.com/forbiddencoding/reddit-post-notifier/common/persistence/entity"
+	"github.com/forbiddencoding/reddit-post-notifier/common/persistence"
 	"github.com/forbiddencoding/reddit-post-notifier/common/reddit"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/temporal"
@@ -28,8 +28,8 @@ func NewActivities(ctx context.Context, conf *config.Config) (*Activities, error
 
 type (
 	GetPostsInput struct {
-		Keyword   string            `json:"keyword"`
-		Subreddit *entity.Subreddit `json:"subreddit"`
+		Keyword   string                 `json:"keyword"`
+		Subreddit *persistence.Subreddit `json:"subreddit"`
 	}
 
 	GetPostsOutput struct {

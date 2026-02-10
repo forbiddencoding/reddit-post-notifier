@@ -27,23 +27,10 @@ Each service can be run independently.
 | `services/digester` | A Temporal Worker that runs the Digest Workflow and its associated Activities. This is responsible for compiling the list of matching Reddit posts and sending the email notification.             |
 | `services/redditor` | A Temporal Worker that runs the Post Workflow and its Activities. This worker is dedicated to interacting with the Reddit Data API and handles rate limiting to avoid hitting API call limits.     |
 
-### Supported Databases
-
-The project natively supports the following databases:
-
-* PostgreSQL v17+
-* MySQL v8+
-* SQLite
-
-Older versions and other compatible SQL databases should work as well, but have not been tested.
-
-> [!IMPORTANT]
-> When using SQLite, all services have to run on the same host.
-
 ### Database Schema
 
 The schema for the database has to be applied manually. The schema can be found in the
-`schema/sql/{DATABASE_SYSTEM}/reddipostnotifier` directory.
+`schema/reddipostnotifier` directory.
 
 ### Running the Application
 
@@ -78,39 +65,18 @@ Credentials and Google Mail App Password from steps 2. and 3.
 * The `reddit.userAgent` value has to be formatted like this:
   `go:<GITHUB_URL_OF_THE_PROJECT>:v<SEMANTIC_VERSION> (by /u/<YOUR_REDDIT_USERNAME>)`
 * The Google Mail App Password has to be entered without spaces
-* Uncomment one of the three `persistence.driver` and `persistence.dsn` keys or create your own. All example
-  configurations are for local use with one of the compose files.
+* All example configurations are for local use with one of the compose files.
 
 #### 4. Start the Docker services
 
-The project comes with two docker compose files:
-
-* `compose.yml`: Uses Postgres for Temporal and is used for the Reddit Post Notifier
-* `compose-mysql.yml` Uses MySQL for Temporal and is used for the Reddit Post Notifier
-
-Your choice of these compose files should depend on the database chosen in the configuration in step 4. For SQLite
-either compose file works.
-
-Start the docker services by running `docker compose up -f <COMPOSE_FILE_NAME>.yml`
+Start the docker services by running `docker compose up`
 
 #### 5. Database Setup
 
 Choose one database, according to your configuration from step 4:
 
-##### Postgres
-
 1. Create a database with its name according to your configuration from step 4.
-2. Connect to the database and execute the `schema/sql/postgres/redditpostnotifier/schema.sql`
-
-##### MySQL
-
-1. Create a database with its name according to your configuration from step 4.
-2. Connect to the database and execute the `schema/sql/mysql/redditpostnotifier/schema.sql`
-
-##### SQLite
-
-1. Create a database file (i.e. `data/sqlite/local.db`) with its path according to your configuration from step 4.
-2. Connect to the database and execute the `schema/sql/sqlite/redditpostnotifier/schema.sql`
+2. Connect to the database and execute the `schema/redditpostnotifier/schema.sql`
 
 #### 6. Start the Reddit Post Notifier Services
 

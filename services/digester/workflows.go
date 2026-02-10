@@ -2,7 +2,7 @@ package digester
 
 import (
 	"fmt"
-	"github.com/forbiddencoding/reddit-post-notifier/common/persistence/entity"
+	"github.com/forbiddencoding/reddit-post-notifier/common/persistence"
 	redditSDK "github.com/forbiddencoding/reddit-post-notifier/common/reddit"
 	"github.com/forbiddencoding/reddit-post-notifier/services/redditor"
 	"go.temporal.io/api/enums/v1"
@@ -48,7 +48,7 @@ func DigestWorkflow(ctx workflow.Context, in *DigestWorkflowInput) (*DigestWorkf
 	}
 
 	var (
-		subreddits = make([]*entity.Subreddit, 0, len(configuration.Subreddits))
+		subreddits = make([]*persistence.Subreddit, 0, len(configuration.Subreddits))
 		posts      []redditSDK.Post
 	)
 
@@ -80,7 +80,7 @@ func DigestWorkflow(ctx workflow.Context, in *DigestWorkflowInput) (*DigestWorkf
 
 		if len(result.Posts) > 0 {
 			posts = append(posts, result.Posts...)
-			subreddits = append(subreddits, &entity.Subreddit{
+			subreddits = append(subreddits, &persistence.Subreddit{
 				ID:     subreddit.ID,
 				Before: result.Subreddit.Before,
 			})

@@ -7,7 +7,6 @@ import (
 	"github.com/forbiddencoding/reddit-post-notifier/common/config"
 	"github.com/forbiddencoding/reddit-post-notifier/common/mail"
 	"github.com/forbiddencoding/reddit-post-notifier/common/persistence"
-	"github.com/forbiddencoding/reddit-post-notifier/common/persistence/entity"
 	"github.com/forbiddencoding/reddit-post-notifier/common/reddit"
 	"html/template"
 	"time"
@@ -36,25 +35,25 @@ type (
 	}
 
 	LoadConfigurationAndStateOutput struct {
-		Keyword    string              `json:"keyword"`
-		Recipients []*entity.Recipient `json:"recipients"`
-		Subreddits []*entity.Subreddit `json:"subreddits,omitempty"`
+		Keyword    string                   `json:"keyword"`
+		Recipients []*persistence.Recipient `json:"recipients"`
+		Subreddits []*persistence.Subreddit `json:"subreddits,omitempty"`
 	}
 )
 
 const LoadConfigurationAndStateActivityName = "load_configuration_and_state"
 
 func (a *Activities) LoadConfigurationAndState(ctx context.Context, in *LoadConfigurationAndStateInput) (*LoadConfigurationAndStateOutput, error) {
-	state, err := a.persistence.LoadConfigurationAndState(ctx, &entity.LoadConfigurationAndStateInput{
+	state, err := a.persistence.LoadConfigurationAndState(ctx, &persistence.LoadConfigurationAndStateInput{
 		ID: in.ID,
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	subreddits := make([]*entity.Subreddit, 0, len(state.Subreddits))
+	subreddits := make([]*persistence.Subreddit, 0, len(state.Subreddits))
 	for _, sr := range state.Subreddits {
-		subreddits = append(subreddits, &entity.Subreddit{
+		subreddits = append(subreddits, &persistence.Subreddit{
 			ID:                sr.ID,
 			Name:              sr.Name,
 			IncludeNSFW:       sr.IncludeNSFW,
@@ -73,9 +72,9 @@ func (a *Activities) LoadConfigurationAndState(ctx context.Context, in *LoadConf
 
 type (
 	SendNotificationInput struct {
-		Keyword    string              `json:"keyword"`
-		Posts      []reddit.Post       `json:"posts"`
-		Recipients []*entity.Recipient `json:"recipients"`
+		Keyword    string                   `json:"keyword"`
+		Posts      []reddit.Post            `json:"posts"`
+		Recipients []*persistence.Recipient `json:"recipients"`
 	}
 
 	SendNotificationOutput struct {
@@ -151,7 +150,7 @@ func (a *Activities) SendNotification(ctx context.Context, in *SendNotificationI
 
 type (
 	UpdateStateInput struct {
-		Subreddits []*entity.Subreddit `json:"subreddits"`
+		Subreddits []*persistence.Subreddit `json:"subreddits"`
 	}
 
 	UpdateStateOutput struct {
@@ -161,14 +160,14 @@ type (
 const UpdateStateActivityName = "update_state"
 
 func (a *Activities) UpdateState(ctx context.Context, in *UpdateStateInput) (*UpdateStateOutput, error) {
-	values := make([]*entity.UpdateStateValue, 0, len(in.Subreddits))
+	values := make([]*persistence.UpdateStateValue, 0, len(in.Subreddits))
 	for _, sr := range in.Subreddits {
-		values = append(values, &entity.UpdateStateValue{
+		values = append(values, &persistence.UpdateStateValue{
 			SubredditConfigurationID: sr.ID,
 			Before:                   sr.Before,
 		})
 	}
-	_, err := a.persistence.UpdateState(ctx, &entity.UpdateStateInput{
+	_, err := a.persistence.UpdateState(ctx, &persistence.UpdateStateInput{
 		Values: values,
 	})
 	if err != nil {

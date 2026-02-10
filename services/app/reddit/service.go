@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"github.com/forbiddencoding/reddit-post-notifier/common/persistence"
-	"github.com/forbiddencoding/reddit-post-notifier/common/persistence/entity"
 	"github.com/forbiddencoding/reddit-post-notifier/services/digester"
 	"github.com/go-playground/validator/v10"
 	"github.com/sony/sonyflake/v2"
@@ -58,8 +57,8 @@ func (s *Service) CreateSchedule(ctx context.Context, in *CreateScheduleInput) (
 	}
 
 	var (
-		recipients = make([]*entity.CreateScheduleRecipient, 0, len(in.Recipients))
-		subreddits = make([]*entity.CreateScheduleSubreddit, 0, len(in.Subreddits))
+		recipients = make([]*persistence.CreateScheduleRecipient, 0, len(in.Recipients))
+		subreddits = make([]*persistence.CreateScheduleSubreddit, 0, len(in.Subreddits))
 	)
 
 	for _, recipient := range in.Recipients {
@@ -68,7 +67,7 @@ func (s *Service) CreateSchedule(ctx context.Context, in *CreateScheduleInput) (
 			return nil, fmt.Errorf("failed to generate ID: %w", err)
 		}
 
-		recipients = append(recipients, &entity.CreateScheduleRecipient{
+		recipients = append(recipients, &persistence.CreateScheduleRecipient{
 			ID:      recipientID,
 			Address: recipient.Address,
 		})
@@ -82,7 +81,7 @@ func (s *Service) CreateSchedule(ctx context.Context, in *CreateScheduleInput) (
 
 		subreddit := strings.TrimPrefix(sub.Subreddit, "r/")
 
-		subreddits = append(subreddits, &entity.CreateScheduleSubreddit{
+		subreddits = append(subreddits, &persistence.CreateScheduleSubreddit{
 			ID:                subredditID,
 			Subreddit:         subreddit,
 			IncludeNSFW:       sub.IncludeNSFW,
@@ -91,7 +90,7 @@ func (s *Service) CreateSchedule(ctx context.Context, in *CreateScheduleInput) (
 		})
 	}
 
-	_, err = s.db.CreateSchedule(ctx, &entity.CreateScheduleInput{
+	_, err = s.db.CreateSchedule(ctx, &persistence.CreateScheduleInput{
 		ID:         id,
 		Keyword:    in.Keyword,
 		Schedule:   in.Schedule,
@@ -127,7 +126,7 @@ func (s *Service) CreateSchedule(ctx context.Context, in *CreateScheduleInput) (
 }
 
 func (s *Service) GetSchedule(ctx context.Context, in *GetScheduleInput) (*GetScheduleOutput, error) {
-	schedule, err := s.db.GetSchedule(ctx, &entity.GetScheduleInput{
+	schedule, err := s.db.GetSchedule(ctx, &persistence.GetScheduleInput{
 		ID: in.ScheduleID,
 	})
 	if err != nil {
@@ -200,8 +199,8 @@ func (s *Service) UpdateSchedule(ctx context.Context, in *UpdateScheduleInput) (
 	}
 
 	var (
-		recipients = make([]*entity.Recipient, 0, len(in.Recipients))
-		subreddits = make([]*entity.Subreddit, 0, len(in.Subreddits))
+		recipients = make([]*persistence.Recipient, 0, len(in.Recipients))
+		subreddits = make([]*persistence.Subreddit, 0, len(in.Subreddits))
 	)
 
 	for _, recipient := range in.Recipients {
@@ -213,7 +212,7 @@ func (s *Service) UpdateSchedule(ctx context.Context, in *UpdateScheduleInput) (
 			id = recipient.ID
 		}
 
-		recipients = append(recipients, &entity.Recipient{
+		recipients = append(recipients, &persistence.Recipient{
 			ID:      id,
 			Address: recipient.Address,
 		})
@@ -230,7 +229,7 @@ func (s *Service) UpdateSchedule(ctx context.Context, in *UpdateScheduleInput) (
 
 		subreddit := strings.TrimPrefix(sub.Subreddit, "r/")
 
-		subreddits = append(subreddits, &entity.Subreddit{
+		subreddits = append(subreddits, &persistence.Subreddit{
 			ID:                id,
 			Name:              subreddit,
 			IncludeNSFW:       sub.IncludeNSFW,
@@ -239,7 +238,7 @@ func (s *Service) UpdateSchedule(ctx context.Context, in *UpdateScheduleInput) (
 		})
 	}
 
-	_, err := s.db.UpdateSchedule(ctx, &entity.UpdateScheduleInput{
+	_, err := s.db.UpdateSchedule(ctx, &persistence.UpdateScheduleInput{
 		ID:         in.ID,
 		Keyword:    in.Keyword,
 		Schedule:   in.Schedule,
@@ -285,7 +284,7 @@ func (s *Service) DeleteSchedule(ctx context.Context, in *DeleteScheduleInput) (
 		return nil, err
 	}
 
-	if _, err := s.db.DeleteSchedule(ctx, &entity.DeleteScheduleInput{ID: in.ID}); err != nil {
+	if _, err := s.db.DeleteSchedule(ctx, &persistence.DeleteScheduleInput{ID: in.ID}); err != nil {
 		return nil, err
 	}
 
@@ -293,7 +292,7 @@ func (s *Service) DeleteSchedule(ctx context.Context, in *DeleteScheduleInput) (
 }
 
 func (s *Service) ListSchedules(ctx context.Context, in *ListSchedulesInput) (*ListSchedulesOutput, error) {
-	res, err := s.db.ListSchedules(ctx, &entity.ListSchedulesInput{
+	res, err := s.db.ListSchedules(ctx, &persistence.ListSchedulesInput{
 		OwnerID: in.OwnerID,
 	})
 	if err != nil {

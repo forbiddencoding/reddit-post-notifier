@@ -22,8 +22,7 @@ type (
 	}
 
 	Persistence struct {
-		Driver string `koanf:"driver" validate:"required,oneof=postgres sqlite mysql"`
-		DSN    string `koanf:"dsn" validate:"required"`
+		DSN string `koanf:"dsn" validate:"required"`
 	}
 
 	Mailer struct {

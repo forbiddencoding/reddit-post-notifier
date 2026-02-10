@@ -1,1 +1,0 @@
-CREATE DATABASE reddit_post_notifier;

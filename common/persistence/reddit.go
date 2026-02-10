@@ -1,11 +1,10 @@
-package postgres
+package persistence
 
 import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/forbiddencoding/reddit-post-notifier/common/persistence/entity"
-	"github.com/forbiddencoding/reddit-post-notifier/common/persistence/postgres/models"
+	"github.com/forbiddencoding/reddit-post-notifier/common/persistence/models"
 	"github.com/jackc/pgx/v5"
 	"strings"
 )
@@ -34,17 +33,12 @@ WHERE
     	c.id = @id;
 `
 
-func (h *Handle) LoadConfigurationAndState(ctx context.Context, in *entity.LoadConfigurationAndStateInput) (*entity.LoadConfigurationAndStateOutput, error) {
-	db, err := h.db()
-	if err != nil {
-		return nil, err
-	}
-
+func (h *Handle) LoadConfigurationAndState(ctx context.Context, in *LoadConfigurationAndStateInput) (*LoadConfigurationAndStateOutput, error) {
 	args := pgx.NamedArgs{
 		"id": in.ID,
 	}
 
-	rows, err := db.Query(ctx, loadConfigurationAndStateQuery, args)
+	rows, err := h.db.Query(ctx, loadConfigurationAndStateQuery, args)
 	if err != nil {
 		return nil, err
 	}
@@ -55,16 +49,16 @@ func (h *Handle) LoadConfigurationAndState(ctx context.Context, in *entity.LoadC
 	}
 
 	if len(dbModels) == 0 {
-		return &entity.LoadConfigurationAndStateOutput{}, nil
+		return &LoadConfigurationAndStateOutput{}, nil
 	}
 
 	keyword := dbModels[0].Keyword
-	subredditMap := make(map[int64]*entity.Subreddit)
-	recipientMap := make(map[int64]*entity.Recipient)
+	subredditMap := make(map[int64]*Subreddit)
+	recipientMap := make(map[int64]*Recipient)
 
 	for _, m := range dbModels {
 		if _, ok := subredditMap[m.SubredditID]; !ok {
-			subreddit := &entity.Subreddit{
+			subreddit := &Subreddit{
 				ID:                m.SubredditID,
 				Name:              m.Subreddit,
 				IncludeNSFW:       m.IncludeNSFW,
@@ -81,7 +75,7 @@ func (h *Handle) LoadConfigurationAndState(ctx context.Context, in *entity.LoadC
 
 		if m.RecipientID.Valid {
 			if _, ok := recipientMap[m.RecipientID.Int64]; !ok {
-				recipientMap[m.RecipientID.Int64] = &entity.Recipient{
+				recipientMap[m.RecipientID.Int64] = &Recipient{
 					ID:      m.RecipientID.Int64,
 					Address: m.Address,
 				}
@@ -89,17 +83,17 @@ func (h *Handle) LoadConfigurationAndState(ctx context.Context, in *entity.LoadC
 		}
 	}
 
-	subreddits := make([]*entity.Subreddit, 0, len(subredditMap))
+	subreddits := make([]*Subreddit, 0, len(subredditMap))
 	for _, v := range subredditMap {
 		subreddits = append(subreddits, v)
 	}
 
-	recipients := make([]*entity.Recipient, 0, len(recipientMap))
+	recipients := make([]*Recipient, 0, len(recipientMap))
 	for _, v := range recipientMap {
 		recipients = append(recipients, v)
 	}
 
-	return &entity.LoadConfigurationAndStateOutput{
+	return &LoadConfigurationAndStateOutput{
 		Keyword:    keyword,
 		Recipients: recipients,
 		Subreddits: subreddits,
@@ -112,19 +106,14 @@ ON CONFLICT (subreddit_configuration_id) DO UPDATE
 SET last_post = EXCLUDED.last_post, last_updated_at = CURRENT_TIMESTAMP;
 `
 
-func (h *Handle) UpdateState(ctx context.Context, in *entity.UpdateStateInput) (*entity.UpdateStateOutput, error) {
-	db, err := h.db()
-	if err != nil {
-		return nil, err
-	}
-
+func (h *Handle) UpdateState(ctx context.Context, in *UpdateStateInput) (*UpdateStateOutput, error) {
 	batch := &pgx.Batch{}
 
 	for _, v := range in.Values {
 		batch.Queue(updateStateQuery, v.SubredditConfigurationID, v.Before)
 	}
 
-	br := db.SendBatch(ctx, batch)
+	br := h.db.SendBatch(ctx, batch)
 	defer func() {
 		_ = br.Close()
 	}()
@@ -132,7 +121,7 @@ func (h *Handle) UpdateState(ctx context.Context, in *entity.UpdateStateInput) (
 	var errs error
 
 	for i := 0; i < batch.Len(); i++ {
-		if _, err = br.Exec(); err != nil {
+		if _, err := br.Exec(); err != nil {
 			errors.Join(errs, err)
 		}
 	}
@@ -141,7 +130,7 @@ func (h *Handle) UpdateState(ctx context.Context, in *entity.UpdateStateInput) (
 		return nil, fmt.Errorf("failed to update state: %w", errs)
 	}
 
-	return &entity.UpdateStateOutput{}, nil
+	return &UpdateStateOutput{}, nil
 }
 
 const (
@@ -161,13 +150,8 @@ INSERT INTO
 VALUES (@id, @configuration_id, @address)`
 )
 
-func (h *Handle) CreateSchedule(ctx context.Context, in *entity.CreateScheduleInput) (*entity.CreateScheduleOutput, error) {
-	db, err := h.db()
-	if err != nil {
-		return nil, err
-	}
-
-	tx, err := db.BeginTx(ctx, pgx.TxOptions{})
+func (h *Handle) CreateSchedule(ctx context.Context, in *CreateScheduleInput) (*CreateScheduleOutput, error) {
+	tx, err := h.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -212,7 +196,7 @@ func (h *Handle) CreateSchedule(ctx context.Context, in *entity.CreateScheduleIn
 		return nil, err
 	}
 
-	return &entity.CreateScheduleOutput{}, nil
+	return &CreateScheduleOutput{}, nil
 }
 
 const getScheduleQuery = `
@@ -237,17 +221,12 @@ WHERE
     	c.id = @id;
 `
 
-func (h *Handle) GetSchedule(ctx context.Context, in *entity.GetScheduleInput) (*entity.GetScheduleOutput, error) {
-	db, err := h.db()
-	if err != nil {
-		return nil, err
-	}
-
+func (h *Handle) GetSchedule(ctx context.Context, in *GetScheduleInput) (*GetScheduleOutput, error) {
 	args := pgx.NamedArgs{
 		"id": in.ID,
 	}
 
-	rows, err := db.Query(ctx, getScheduleQuery, args)
+	rows, err := h.db.Query(ctx, getScheduleQuery, args)
 	if err != nil {
 		return nil, err
 	}
@@ -258,17 +237,17 @@ func (h *Handle) GetSchedule(ctx context.Context, in *entity.GetScheduleInput) (
 	}
 
 	if len(dbModels) == 0 {
-		return &entity.GetScheduleOutput{}, nil
+		return &GetScheduleOutput{}, nil
 	}
 
 	keyword := dbModels[0].Keyword
 	schedule := dbModels[0].Schedule
-	subredditMap := make(map[int64]*entity.Subreddit)
-	recipientMap := make(map[int64]*entity.Recipient)
+	subredditMap := make(map[int64]*Subreddit)
+	recipientMap := make(map[int64]*Recipient)
 
 	for _, m := range dbModels {
 		if _, ok := subredditMap[m.SubredditID]; !ok {
-			subredditMap[m.SubredditID] = &entity.Subreddit{
+			subredditMap[m.SubredditID] = &Subreddit{
 				ID:                m.SubredditID,
 				Name:              m.Subreddit,
 				IncludeNSFW:       m.IncludeNSFW,
@@ -279,7 +258,7 @@ func (h *Handle) GetSchedule(ctx context.Context, in *entity.GetScheduleInput) (
 
 		if m.RecipientID.Valid {
 			if _, ok := recipientMap[m.RecipientID.Int64]; !ok {
-				recipientMap[m.RecipientID.Int64] = &entity.Recipient{
+				recipientMap[m.RecipientID.Int64] = &Recipient{
 					ID:      m.RecipientID.Int64,
 					Address: m.Address,
 				}
@@ -287,17 +266,17 @@ func (h *Handle) GetSchedule(ctx context.Context, in *entity.GetScheduleInput) (
 		}
 	}
 
-	subreddits := make([]*entity.Subreddit, 0, len(subredditMap))
+	subreddits := make([]*Subreddit, 0, len(subredditMap))
 	for _, v := range subredditMap {
 		subreddits = append(subreddits, v)
 	}
 
-	recipients := make([]*entity.Recipient, 0, len(recipientMap))
+	recipients := make([]*Recipient, 0, len(recipientMap))
 	for _, v := range recipientMap {
 		recipients = append(recipients, v)
 	}
 
-	return &entity.GetScheduleOutput{
+	return &GetScheduleOutput{
 		ID:         dbModels[0].ID,
 		Keyword:    keyword,
 		Schedule:   schedule,
@@ -309,17 +288,12 @@ func (h *Handle) GetSchedule(ctx context.Context, in *entity.GetScheduleInput) (
 
 const deleteScheduleQuery = `DELETE FROM configuration WHERE id = @id`
 
-func (h *Handle) DeleteSchedule(ctx context.Context, in *entity.DeleteScheduleInput) (*entity.DeleteScheduleOutput, error) {
-	db, err := h.db()
-	if err != nil {
-		return nil, err
-	}
-
+func (h *Handle) DeleteSchedule(ctx context.Context, in *DeleteScheduleInput) (*DeleteScheduleOutput, error) {
 	args := pgx.NamedArgs{
 		"id": in.ID,
 	}
 
-	cmd, err := db.Exec(ctx, deleteScheduleQuery, args)
+	cmd, err := h.db.Exec(ctx, deleteScheduleQuery, args)
 	if err != nil {
 		return nil, err
 	}
@@ -328,7 +302,7 @@ func (h *Handle) DeleteSchedule(ctx context.Context, in *entity.DeleteScheduleIn
 		return nil, errors.New("delete schedule row not found")
 	}
 
-	return &entity.DeleteScheduleOutput{}, nil
+	return &DeleteScheduleOutput{}, nil
 }
 
 const listSchedulesQuery = `
@@ -352,12 +326,7 @@ LEFT JOIN
     recipients r ON c.id = r.configuration_id
 `
 
-func (h *Handle) ListSchedules(ctx context.Context, in *entity.ListSchedulesInput) (*entity.ListSchedulesOutput, error) {
-	db, err := h.db()
-	if err != nil {
-		return nil, err
-	}
-
+func (h *Handle) ListSchedules(ctx context.Context, in *ListSchedulesInput) (*ListSchedulesOutput, error) {
 	var sb strings.Builder
 	sb.WriteString(listSchedulesQuery)
 	args := pgx.NamedArgs{}
@@ -369,7 +338,7 @@ func (h *Handle) ListSchedules(ctx context.Context, in *entity.ListSchedulesInpu
 
 	sb.WriteString(" ORDER BY c.id;")
 
-	rows, err := db.Query(ctx, sb.String(), args)
+	rows, err := h.db.Query(ctx, sb.String(), args)
 	if err != nil {
 		return nil, err
 	}
@@ -381,21 +350,21 @@ func (h *Handle) ListSchedules(ctx context.Context, in *entity.ListSchedulesInpu
 	}
 
 	if len(dbModels) == 0 {
-		return &entity.ListSchedulesOutput{}, nil
+		return &ListSchedulesOutput{}, nil
 	}
 
-	schedulesMap := make(map[int64]*entity.Schedule)
+	schedulesMap := make(map[int64]*Schedule)
 	subredditSets := make(map[int64]map[int64]struct{})
 	recipientSets := make(map[int64]map[int64]struct{})
 
 	for _, m := range dbModels {
 		if _, ok := schedulesMap[m.ID]; !ok {
-			schedulesMap[m.ID] = &entity.Schedule{
+			schedulesMap[m.ID] = &Schedule{
 				ID:         m.ID,
 				Keyword:    m.Keyword,
 				Schedule:   m.Schedule,
-				Recipients: []*entity.Recipient{},
-				Subreddits: []*entity.Subreddit{},
+				Recipients: []*Recipient{},
+				Subreddits: []*Subreddit{},
 			}
 			subredditSets[m.ID] = make(map[int64]struct{})
 			recipientSets[m.ID] = make(map[int64]struct{})
@@ -404,7 +373,7 @@ func (h *Handle) ListSchedules(ctx context.Context, in *entity.ListSchedulesInpu
 		schedule := schedulesMap[m.ID]
 
 		if _, ok := subredditSets[m.ID][m.SubredditID]; !ok {
-			schedule.Subreddits = append(schedule.Subreddits, &entity.Subreddit{
+			schedule.Subreddits = append(schedule.Subreddits, &Subreddit{
 				ID:                m.SubredditID,
 				Name:              m.Subreddit,
 				IncludeNSFW:       m.IncludeNSFW,
@@ -416,7 +385,7 @@ func (h *Handle) ListSchedules(ctx context.Context, in *entity.ListSchedulesInpu
 
 		if m.RecipientID.Valid {
 			if _, ok := recipientSets[m.ID][m.RecipientID.Int64]; !ok {
-				schedule.Recipients = append(schedule.Recipients, &entity.Recipient{
+				schedule.Recipients = append(schedule.Recipients, &Recipient{
 					ID:      m.RecipientID.Int64,
 					Address: m.Address,
 				})
@@ -425,23 +394,18 @@ func (h *Handle) ListSchedules(ctx context.Context, in *entity.ListSchedulesInpu
 		}
 	}
 
-	schedules := make([]*entity.Schedule, 0, len(schedulesMap))
+	schedules := make([]*Schedule, 0, len(schedulesMap))
 	for _, schedule := range schedulesMap {
 		schedules = append(schedules, schedule)
 	}
 
-	return &entity.ListSchedulesOutput{
+	return &ListSchedulesOutput{
 		Schedules: schedules,
 	}, nil
 }
 
-func (h *Handle) UpdateSchedule(ctx context.Context, in *entity.UpdateScheduleInput) (*entity.UpdateScheduleOutput, error) {
-	db, err := h.db()
-	if err != nil {
-		return nil, err
-	}
-
-	tx, err := db.BeginTx(ctx, pgx.TxOptions{})
+func (h *Handle) UpdateSchedule(ctx context.Context, in *UpdateScheduleInput) (*UpdateScheduleOutput, error) {
+	tx, err := h.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -465,7 +429,7 @@ func (h *Handle) UpdateSchedule(ctx context.Context, in *entity.UpdateScheduleIn
 		return nil, err
 	}
 
-	return &entity.UpdateScheduleOutput{}, nil
+	return &UpdateScheduleOutput{}, nil
 }
 
 const updateConfigurationQuery = `
@@ -474,7 +438,7 @@ SET keyword = @keyword, schedule = @schedule
 WHERE id = @id
 `
 
-func (h *Handle) updateConfiguration(ctx context.Context, tx pgx.Tx, in *entity.UpdateScheduleInput) error {
+func (h *Handle) updateConfiguration(ctx context.Context, tx pgx.Tx, in *UpdateScheduleInput) error {
 	args := pgx.NamedArgs{
 		"id":       in.ID,
 		"keyword":  in.Keyword,
@@ -487,7 +451,7 @@ func (h *Handle) updateConfiguration(ctx context.Context, tx pgx.Tx, in *entity.
 	return nil
 }
 
-func (h *Handle) syncSubreddits(ctx context.Context, tx pgx.Tx, configurationID int64, subreddits []*entity.Subreddit) error {
+func (h *Handle) syncSubreddits(ctx context.Context, tx pgx.Tx, configurationID int64, subreddits []*Subreddit) error {
 	const getQ = `SELECT id FROM subreddit_configuration WHERE configuration_id = @configuration_id;`
 	rows, err := tx.Query(ctx, getQ, pgx.NamedArgs{"configuration_id": configurationID})
 	if err != nil {
@@ -556,7 +520,7 @@ ON CONFLICT (id) DO UPDATE SET
 	return nil
 }
 
-func (h *Handle) syncRecipients(ctx context.Context, tx pgx.Tx, configurationID int64, recipients []*entity.Recipient) error {
+func (h *Handle) syncRecipients(ctx context.Context, tx pgx.Tx, configurationID int64, recipients []*Recipient) error {
 	const getQ = `SELECT id FROM recipients WHERE configuration_id = @configuration_id;`
 	rows, err := tx.Query(ctx, getQ, pgx.NamedArgs{"configuration_id": configurationID})
 	if err != nil {
