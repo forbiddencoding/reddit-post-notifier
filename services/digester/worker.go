@@ -4,7 +4,6 @@ import (
 	"context"
 	"github.com/forbiddencoding/reddit-post-notifier/common/config"
 	"github.com/forbiddencoding/reddit-post-notifier/common/persistence"
-	"github.com/forbiddencoding/reddit-post-notifier/common/temporalx"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/worker"
@@ -36,8 +35,8 @@ func New(ctx context.Context, client client.Client, persistence persistence.Pers
 	}, nil
 }
 
-func (w *Worker) Start(ctx context.Context) error {
-	return w.worker.Run(temporalx.WorkerInterruptFromCtxChan(ctx))
+func (w *Worker) Start() error {
+	return w.worker.Start()
 }
 
 func (w *Worker) Close() error {

@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"github.com/forbiddencoding/reddit-post-notifier/common/config"
 	"log/slog"
@@ -27,32 +26,24 @@ func New(handler http.Handler, config *config.Config) *Server {
 	return &Server{http: s}
 }
 
-func (s *Server) Start(ctx context.Context) error {
-	go func() {
-		<-ctx.Done()
-
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-
-		slog.Info("server shutdown signal received, starting graceful shutdown")
-
-		if err := s.http.Shutdown(shutdownCtx); err != nil {
-			slog.Error("http server graceful shutdown failed", slog.Any("error", err))
-		}
-	}()
-
+func (s *Server) Start() error {
 	slog.Info("starting http server", "addr", s.http.Addr)
 	err := s.http.ListenAndServe()
-
-	if errors.Is(err, http.ErrServerClosed) {
-		slog.Info("http server shut down gracefully")
-		return nil
-	}
 
 	return fmt.Errorf("could not start http server: %w", err)
 }
 
 func (s *Server) Close() error {
-	slog.Info("closing http server immediately")
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	slog.Info("server shutdown signal received, starting graceful shutdown")
+
+	if err := s.http.Shutdown(shutdownCtx); err != nil {
+		slog.Warn("http server graceful shutdown failed, forcing close", slog.Any("error", err))
+		return s.http.Close()
+	}
+
+	slog.Info("http server shutdown complete")
 	return s.http.Close()
 }

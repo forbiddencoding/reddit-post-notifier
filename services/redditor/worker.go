@@ -1,7 +1,6 @@
 package redditor
 
 import (
-	"context"
 	"github.com/forbiddencoding/reddit-post-notifier/common/persistence"
 	"github.com/forbiddencoding/reddit-post-notifier/common/reddit"
 	"go.temporal.io/sdk/activity"
@@ -38,7 +37,7 @@ func New(client client.Client, persistence persistence.Persistence, reddit *redd
 	}, nil
 }
 
-func (w *Worker) Start(ctx context.Context) error {
+func (w *Worker) Start() error {
 	return w.worker.Start()
 }
 
