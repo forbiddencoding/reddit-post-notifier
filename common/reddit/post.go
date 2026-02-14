@@ -57,7 +57,7 @@ type RateLimitError struct {
 }
 
 func (e RateLimitError) Error() string {
-	return "rate limit exceeded"
+	return e.Message
 }
 
 func (e RateLimitError) GetReset() int {

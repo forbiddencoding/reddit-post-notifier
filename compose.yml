@@ -1,8 +1,9 @@
 services:
 
-  temporal:
-    image: temporalio/auto-setup:1.28.0
-    hostname: temporal
+  temporal-admin-tools:
+    image: temporalio/admin-tools:1.29
+    container_name: temporal-setup-postgres
+    restart: on-failure:6
     networks:
       - reddit-post-notifier
     depends_on:
@@ -10,31 +11,65 @@ services:
         condition: service_healthy
     environment:
       DB: postgres12
-      DBNAME: temporal
-      VISIBILITY_DBNAME: temporal_visibility
       DB_PORT: 5432
-      POSTGRES_SEEDS: postgres
       POSTGRES_USER: temporal
       POSTGRES_PWD: temporal
+      POSTGRES_SEEDS: postgres
+      SQL_PASSWORD: temporal
+    volumes:
+      - ./scripts:/scripts
+    entrypoint: [ "/bin/sh" ]
+    command: /scripts/setup-postgres.sh
+
+  temporal-create-namespace:
+    image: temporalio/admin-tools:1.29
+    container_name: temporal-create-namespace
+    restart: on-failure:5
+    depends_on:
+      temporal:
+        condition: service_healthy
+    environment:
       TEMPORAL_ADDRESS: temporal:7233
-      TEMPORAL_CLI_ADDRESS: temporal:7233
       DEFAULT_NAMESPACE: reddit-post-notifier
-      DEFAULT_NAMESPACE_RETENTION: 7d
+    networks:
+      - reddit-post-notifier
+    volumes:
+      - ./scripts:/scripts
+    entrypoint: [ "/bin/sh" ]
+    command: /scripts/create-namespace.sh
+
+  temporal:
+    image: temporalio/server:1.29
+    hostname: temporal
+    networks:
+      - reddit-post-notifier
+    depends_on:
+      temporal-admin-tools:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+    environment:
+      DB: postgres12
+      DB_PORT: 5432
+      POSTGRES_USER: temporal
+      POSTGRES_PWD: temporal
+      POSTGRES_SEEDS: postgres
+      BIND_ON_IP: 0.0.0.0
       DYNAMIC_CONFIG_FILE_PATH: config/dynamicconfig/development-sql.yaml
       LOG_LEVEL: error
     volumes:
       - ./deployments/docker/temporal/dynamicconfig:/etc/temporal/config/dynamicconfig
     healthcheck:
-      test: CMD-SHELL tctl --address temporal:7233 workflow list
-      interval: 10s
-      timeout: 10s
-      retries: 10
-      start_period: 5s
+      test: [ "CMD", "nc", "-z", "localhost", "7233" ]
+      interval: 5s
+      timeout: 3s
+      retries: 60
+      start_period: 30s
     ports:
       - '7233:7233'
 
   temporal-ui:
-    image: temporalio/ui:v2.38.3
+    image: temporalio/ui:2.45.3
     hostname: temporal-ui
     networks:
       - reddit-post-notifier
@@ -45,25 +80,39 @@ services:
       - '8181:8080'
 
   postgres:
-    image: postgres:17.4-alpine3.21
+    image: postgres:18-alpine
     hostname: postgres
     networks:
       - reddit-post-notifier
     environment:
-      POSTGRES_DB: main
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      PGDATA: /var/lib/postgresql/data/pgdata
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      RPN_DB_USER: ${RPN_DB_USER}
+      RPN_DB_PWD: ${RPN_DB_PWD}
+      RPN_DB_DBNAME: ${RPN_DB_DBNAME}
     volumes:
       - ./deployments/docker/postgres/initdb.d:/docker-entrypoint-initdb.d
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: pg_isready -U postgres
+      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
       interval: 10s
       timeout: 10s
       retries: 10
     ports:
       - '5432:5432'
+
+  migrate:
+    image: migrate/migrate:4
+    networks:
+      - reddit-post-notifier
+    volumes:
+      - ./migrations:/migrations
+    environment:
+      - DATABASE_URL=postgres://postgres:postgres@postgres:5432/reddit_post_notifier?sslmode=disable
+    entrypoint: sh -c "migrate -path /migrations/ -database $$DATABASE_URL up"
+    depends_on:
+      postgres:
+        condition: service_healthy
 
 volumes:
   postgres-data:

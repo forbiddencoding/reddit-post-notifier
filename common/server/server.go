@@ -49,10 +49,10 @@ func (s *Server) Start(ctx context.Context) error {
 		return nil
 	}
 
-	return fmt.Errorf("http server failed: %w", err)
+	return fmt.Errorf("could not start http server: %w", err)
 }
 
-func (s *Server) Close(ctx context.Context) error {
+func (s *Server) Close() error {
 	slog.Info("closing http server immediately")
 	return s.http.Close()
 }

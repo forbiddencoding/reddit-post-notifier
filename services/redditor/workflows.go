@@ -2,7 +2,7 @@ package redditor
 
 import (
 	"github.com/forbiddencoding/reddit-post-notifier/common/persistence"
-	"github.com/forbiddencoding/reddit-post-notifier/common/reddit"
+	"github.com/google/uuid"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 	"time"
@@ -10,14 +10,13 @@ import (
 
 type (
 	PostWorkflowInput struct {
-		Keyword   string
-		Subreddit *persistence.Subreddit `json:"subreddit"`
-		Posts     []reddit.Post          `json:"posts"`
+		ConfigurationID uuid.UUID              `json:"configuration_id"`
+		Keyword         string                 `json:"keyword"`
+		Subreddit       *persistence.Subreddit `json:"subreddit"`
 	}
 
 	PostWorkflowOutput struct {
-		Subreddit *persistence.Subreddit `json:"subreddit"`
-		Posts     []reddit.Post          `json:"posts"`
+		Before string `json:"before"`
 	}
 )
 
@@ -37,28 +36,26 @@ func PostWorkflow(ctx workflow.Context, in *PostWorkflowInput) (*PostWorkflowOut
 
 	var result GetPostsOutput
 	err := workflow.ExecuteActivity(ctx, GetPostsActivityName, &GetPostsInput{
-		Keyword:   in.Keyword,
-		Subreddit: in.Subreddit,
+		ConfigurationID: in.ConfigurationID,
+		Keyword:         in.Keyword,
+		Subreddit:       in.Subreddit,
 	}).Get(ctx, &result)
 	if err != nil {
-		logger.Error("Failed to get posts", "error", err, "subreddit", in.Subreddit.Name)
 		return nil, err
 	}
 
-	input := PostWorkflowInput{
-		Keyword:   in.Keyword,
-		Subreddit: in.Subreddit,
-		Posts:     in.Posts,
-	}
-
-	if len(result.Posts) == 0 {
+	if !result.HasMore {
 		return &PostWorkflowOutput{
-			Subreddit: in.Subreddit,
-			Posts:     in.Posts,
+			Before: in.Subreddit.Before,
 		}, nil
 	}
 
-	input.Posts = append(in.Posts, result.Posts...)
+	input := PostWorkflowInput{
+		ConfigurationID: in.ConfigurationID,
+		Keyword:         in.Keyword,
+		Subreddit:       in.Subreddit,
+	}
+
 	input.Subreddit.Before = result.Before
 
 	return nil, workflow.NewContinueAsNewError(ctx, PostWorkflow, &input)

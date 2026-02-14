@@ -6,7 +6,6 @@ import (
 	"github.com/forbiddencoding/reddit-post-notifier/common/persistence"
 	"github.com/forbiddencoding/reddit-post-notifier/services/app/reddit"
 	"github.com/go-playground/validator/v10"
-	"github.com/sony/sonyflake/v2"
 	"go.temporal.io/sdk/client"
 )
 
@@ -14,7 +13,6 @@ type App struct {
 	config      *config.Config
 	temporal    client.Client
 	persistence persistence.Persistence
-	sonyflake   *sonyflake.Sonyflake
 	validator   *validator.Validate
 	// ---
 	redditService reddit.Servicer
@@ -26,13 +24,7 @@ func New(
 	persistence persistence.Persistence,
 	validator *validator.Validate,
 ) (*App, error) {
-	var st sonyflake.Settings
-	sf, err := sonyflake.New(st)
-	if err != nil {
-		return nil, err
-	}
-
-	redditService, err := reddit.NewService(persistence, temporalClient, sf, validator)
+	redditService, err := reddit.NewService(persistence, temporalClient, validator)
 	if err != nil {
 		return nil, err
 	}
@@ -41,7 +33,6 @@ func New(
 		config:        config,
 		temporal:      temporalClient,
 		persistence:   persistence,
-		sonyflake:     sf,
 		validator:     validator,
 		redditService: redditService,
 	}, nil

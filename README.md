@@ -13,7 +13,7 @@ found [here](https://github.com/forbiddencoding/reddit-post-notifier-web).
 
 To get started with the project, you'll need to have the following installed on your machine:
 
-* **Golang 1.24+**: The application is written in Go
+* **Golang 1.26+**: The application is written in Go
 * **Docker** and **Docker Compose**: Used to run Temporal and Databases
 
 ### Navigating the Codebase
@@ -26,11 +26,6 @@ Each service can be run independently.
 | `services/app`      | This service provides the REST API that handles user requests for creating, reading, updating, and deleting schedules. It acts as the interface between the web frontend and the Temporal backend. |
 | `services/digester` | A Temporal Worker that runs the Digest Workflow and its associated Activities. This is responsible for compiling the list of matching Reddit posts and sending the email notification.             |
 | `services/redditor` | A Temporal Worker that runs the Post Workflow and its Activities. This worker is dedicated to interacting with the Reddit Data API and handles rate limiting to avoid hitting API call limits.     |
-
-### Database Schema
-
-The schema for the database has to be applied manually. The schema can be found in the
-`schema/reddipostnotifier` directory.
 
 ### Running the Application
 
@@ -58,42 +53,20 @@ And click on `Create`. Make sure to store the App Password somewhere safe, you w
 
 #### 4. Configure the Application
 
+Create a `.env` file in the root of the repository based on the `.env.example` file and populate the missing keys.
+
 By default, the application expects a `config.yml` file in the `config/` directory. Copy the contents of the
 `config/example.config.yml` file into a new `config.yml` file and populate the missing values with the Reddit App
 Credentials and Google Mail App Password from steps 2. and 3.
 
-* The `reddit.userAgent` value has to be formatted like this:
+* The `RPN_REDDIT_USERAGENT` value has to be formatted like this:
   `go:<GITHUB_URL_OF_THE_PROJECT>:v<SEMANTIC_VERSION> (by /u/<YOUR_REDDIT_USERNAME>)`
-* The Google Mail App Password has to be entered without spaces
-* All example configurations are for local use with one of the compose files.
+* The Google Mail App Password has to be entered without spaces into `RPN_MAILER_GMAIL_APP_PASSWORD`
+* All example configurations are for local use with the Makefile.
 
-#### 4. Start the Docker services
+#### 4. Start the Project
 
-Start the docker services by running `docker compose up`
-
-#### 5. Database Setup
-
-Choose one database, according to your configuration from step 4:
-
-1. Create a database with its name according to your configuration from step 4.
-2. Connect to the database and execute the `schema/redditpostnotifier/schema.sql`
-
-#### 6. Start the Reddit Post Notifier Services
-
-From the root of the project run the following command:
-
-```bash
-go run cmd/server/main.go start
-```
-
-This will start all services with the config file being `config/config.yml`.
-
-##### Flags
-
-| Option               | Description                                                                         |
-|----------------------|-------------------------------------------------------------------------------------|
-| `--config` or `-c`   | Config file path relative to the application. Default is `./config/config.yml`.     |
-| `--services` or `-s` | A comma separated list of service(s) to start. Default is `app,digest,reddit` (all) |
+Start the docker services and application by running `make run` in your terminal
 
 ## API
 

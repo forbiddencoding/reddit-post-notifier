@@ -3,12 +3,14 @@ package digester
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"github.com/forbiddencoding/reddit-post-notifier/common/config"
 	"github.com/forbiddencoding/reddit-post-notifier/common/mail"
 	"github.com/forbiddencoding/reddit-post-notifier/common/persistence"
-	"github.com/forbiddencoding/reddit-post-notifier/common/reddit"
+	"github.com/google/uuid"
 	"html/template"
+	"sort"
 	"time"
 )
 
@@ -31,7 +33,7 @@ func NewActivities(ctx context.Context, persistence persistence.Persistence, con
 
 type (
 	LoadConfigurationAndStateInput struct {
-		ID int64 `json:"id"`
+		ID uuid.UUID `json:"id"`
 	}
 
 	LoadConfigurationAndStateOutput struct {
@@ -72,9 +74,9 @@ func (a *Activities) LoadConfigurationAndState(ctx context.Context, in *LoadConf
 
 type (
 	SendNotificationInput struct {
-		Keyword    string                   `json:"keyword"`
-		Posts      []reddit.Post            `json:"posts"`
-		Recipients []*persistence.Recipient `json:"recipients"`
+		ConfigurationID uuid.UUID                `json:"configuration_id"`
+		Keyword         string                   `json:"keyword"`
+		Recipients      []*persistence.Recipient `json:"recipients"`
 	}
 
 	SendNotificationOutput struct {
@@ -84,57 +86,48 @@ type (
 const SendNotificationActivityName = "send_notification"
 
 func (a *Activities) SendNotification(ctx context.Context, in *SendNotificationInput) (*SendNotificationOutput, error) {
-	type (
-		PostView struct {
-			ID         string `json:"id"`
-			Title      string `json:"title"`
-			URL        string `json:"url"`
-			Subreddit  string `json:"subreddit"`
-			NSFW       bool   `json:"nsfw"`
-			Spoiler    bool   `json:"spoiler"`
-			Ups        int    `json:"ups"`
-			Downs      int    `json:"downs"`
-			Thumbnail  string `json:"thumbnail"`
-			CreatedStr string `json:"created_str"`
-			Permalink  string `json:"permalink"`
-		}
-	)
-
-	var addresses []string
+	var addresses = make([]string, 0, len(in.Recipients))
 	for _, recipient := range in.Recipients {
 		addresses = append(addresses, recipient.Address)
 	}
 
-	postViews := make([]PostView, 0, len(in.Posts))
-	for _, p := range in.Posts {
-		postViews = append(postViews, PostView{
-			ID:         p.ID,
-			Title:      p.Title,
-			URL:        p.URL,
-			Subreddit:  p.Subreddit,
-			NSFW:       p.NSFW,
-			Spoiler:    p.Spoiler,
-			Ups:        p.Ups,
-			Downs:      p.Downs,
-			Thumbnail:  p.SanitizeThumbnail(),
-			CreatedStr: time.Unix(int64(p.CreatedUTC), 0).Format(time.RFC822),
-			Permalink:  p.GetPermalink(),
-		})
+	items, err := a.persistence.GetPosts(ctx, &persistence.GetPostsInput{
+		ConfigurationID: in.ConfigurationID,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("get posts from queue: %w", err)
 	}
+
+	var posts = make([]persistence.Post, 0, len(items.Items))
+	for _, item := range items.Items {
+		var post persistence.Post
+		if err = json.Unmarshal(item.Post, &post); err != nil {
+			return nil, fmt.Errorf("unmarshal post: %w", err)
+		}
+
+		posts = append(posts, post)
+	}
+
+	sort.SliceStable(posts, func(i, j int) bool {
+		iCreated, _ := time.Parse(posts[i].Created, time.RFC822)
+		jCreated, _ := time.Parse(posts[i].Created, time.RFC822)
+
+		return iCreated.Before(jCreated)
+	})
 
 	data := map[string]any{
 		"Title": "New Reddit Posts Notification",
-		"Posts": postViews,
+		"Posts": posts,
 	}
 
 	tmpl, err := template.ParseGlob("templates/*.html")
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse email template: %w", err)
+		return nil, fmt.Errorf("parse email template: %w", err)
 	}
 
 	var body bytes.Buffer
 	if err = tmpl.ExecuteTemplate(&body, "email", data); err != nil {
-		return nil, fmt.Errorf("failed to execute email template: %w", err)
+		return nil, fmt.Errorf("execute email template: %w", err)
 	}
 
 	if err = a.mailer.SendMail(
@@ -143,8 +136,15 @@ func (a *Activities) SendNotification(ctx context.Context, in *SendNotificationI
 		in.Keyword,
 		body.String(),
 	); err != nil {
-		return nil, fmt.Errorf("failed to send mail: %w", err)
+		return nil, fmt.Errorf("send mail: %w", err)
 	}
+
+	if _, err = a.persistence.PopPosts(ctx, &persistence.PopPostsInput{
+		ConfigurationID: in.ConfigurationID,
+	}); err != nil {
+		return nil, fmt.Errorf("pop posts from queue: %w", err)
+	}
+
 	return nil, nil
 }
 

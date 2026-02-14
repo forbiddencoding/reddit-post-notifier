@@ -2,35 +2,44 @@ package persistence
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/forbiddencoding/reddit-post-notifier/common/persistence/models"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"strings"
 )
 
 const loadConfigurationAndStateQuery = `
 SELECT
-    c.id AS id,
-	c.keyword AS keyword,
-	sc.id AS subreddit_id,
-	sc.subreddit AS subreddit,
-	sc.include_nsfw AS include_nsfw,
-	sc.sort AS sort,
-	sc.restrict_subreddit AS restrict_subreddit,
-	scs.last_post AS before,
-	r.id AS recipient_id,
-	r.address AS address
+    c.keyword,
+    (
+        SELECT COALESCE(jsonb_agg(s), '[]')
+        FROM (
+            SELECT 
+                sc.id, 
+                sc.subreddit as name, 
+                sc.include_nsfw, 
+                sc.sort, 
+                sc.restrict_subreddit,
+                scs.last_post AS before
+            FROM subreddit_configuration sc
+            LEFT JOIN subreddit_configuration_state scs ON sc.id = scs.subreddit_configuration_id
+            WHERE sc.configuration_id = c.id
+        ) s
+    ) AS subreddits,
+    (
+        SELECT COALESCE(jsonb_agg(r), '[]')
+        FROM (
+            SELECT r.id, r.address
+            FROM recipients r
+            WHERE r.configuration_id = c.id
+        ) r
+    ) AS recipients
 FROM
     configuration c
-JOIN
-	subreddit_configuration sc ON c.id = sc.configuration_id
-LEFT JOIN
-	subreddit_configuration_state scs ON sc.id = scs.subreddit_configuration_id
-LEFT JOIN
-    recipients r ON c.id = r.configuration_id
 WHERE
-    	c.id = @id;
+    c.id = @id;
 `
 
 func (h *Handle) LoadConfigurationAndState(ctx context.Context, in *LoadConfigurationAndStateInput) (*LoadConfigurationAndStateOutput, error) {
@@ -43,58 +52,23 @@ func (h *Handle) LoadConfigurationAndState(ctx context.Context, in *LoadConfigur
 		return nil, err
 	}
 
-	dbModels, err := pgx.CollectRows(rows, pgx.RowToStructByName[models.LoadConfigurationAndState])
+	dbModel, err := pgx.CollectExactlyOneRow(rows, pgx.RowToStructByName[models.LoadConfigurationAndState])
 	if err != nil {
 		return nil, err
 	}
 
-	if len(dbModels) == 0 {
-		return &LoadConfigurationAndStateOutput{}, nil
+	var subreddits []*Subreddit
+	if err = json.Unmarshal(dbModel.Subreddits, &subreddits); err != nil {
+		return nil, err
 	}
 
-	keyword := dbModels[0].Keyword
-	subredditMap := make(map[int64]*Subreddit)
-	recipientMap := make(map[int64]*Recipient)
-
-	for _, m := range dbModels {
-		if _, ok := subredditMap[m.SubredditID]; !ok {
-			subreddit := &Subreddit{
-				ID:                m.SubredditID,
-				Name:              m.Subreddit,
-				IncludeNSFW:       m.IncludeNSFW,
-				Sort:              m.Sort,
-				RestrictSubreddit: m.RestrictSubreddit,
-			}
-
-			if m.Before.Valid {
-				subreddit.Before = m.Before.String
-			}
-
-			subredditMap[m.SubredditID] = subreddit
-		}
-
-		if m.RecipientID.Valid {
-			if _, ok := recipientMap[m.RecipientID.Int64]; !ok {
-				recipientMap[m.RecipientID.Int64] = &Recipient{
-					ID:      m.RecipientID.Int64,
-					Address: m.Address,
-				}
-			}
-		}
-	}
-
-	subreddits := make([]*Subreddit, 0, len(subredditMap))
-	for _, v := range subredditMap {
-		subreddits = append(subreddits, v)
-	}
-
-	recipients := make([]*Recipient, 0, len(recipientMap))
-	for _, v := range recipientMap {
-		recipients = append(recipients, v)
+	var recipients []*Recipient
+	if err = json.Unmarshal(dbModel.Recipients, &recipients); err != nil {
+		return nil, err
 	}
 
 	return &LoadConfigurationAndStateOutput{
-		Keyword:    keyword,
+		Keyword:    dbModel.Keyword,
 		Recipients: recipients,
 		Subreddits: subreddits,
 	}, nil
@@ -242,8 +216,8 @@ func (h *Handle) GetSchedule(ctx context.Context, in *GetScheduleInput) (*GetSch
 
 	keyword := dbModels[0].Keyword
 	schedule := dbModels[0].Schedule
-	subredditMap := make(map[int64]*Subreddit)
-	recipientMap := make(map[int64]*Recipient)
+	subredditMap := make(map[uuid.UUID]*Subreddit)
+	recipientMap := make(map[uuid.UUID]*Recipient)
 
 	for _, m := range dbModels {
 		if _, ok := subredditMap[m.SubredditID]; !ok {
@@ -256,12 +230,10 @@ func (h *Handle) GetSchedule(ctx context.Context, in *GetScheduleInput) (*GetSch
 			}
 		}
 
-		if m.RecipientID.Valid {
-			if _, ok := recipientMap[m.RecipientID.Int64]; !ok {
-				recipientMap[m.RecipientID.Int64] = &Recipient{
-					ID:      m.RecipientID.Int64,
-					Address: m.Address,
-				}
+		if _, ok := recipientMap[m.RecipientID]; !ok {
+			recipientMap[m.RecipientID] = &Recipient{
+				ID:      m.RecipientID,
+				Address: m.Address,
 			}
 		}
 	}
@@ -282,7 +254,6 @@ func (h *Handle) GetSchedule(ctx context.Context, in *GetScheduleInput) (*GetSch
 		Schedule:   schedule,
 		Recipients: recipients,
 		Subreddits: subreddits,
-		OwnerID:    0,
 	}, nil
 }
 
@@ -310,35 +281,29 @@ SELECT
 	c.id AS id,
 	c.keyword AS keyword,
 	c.schedule AS schedule,
-	c.owner_id AS owner_id,
-	sc.id AS subreddit_id,
-	sc.subreddit AS subreddit,
-	sc.include_nsfw AS include_nsfw,
-	sc.sort AS sort,
-	sc.restrict_subreddit AS restrict_subreddit,
-	r.id AS recipient_id,
-	r.address AS address
+	(
+	    SELECT COALESCE(jsonb_agg(sc), '[]')
+	    FROM (
+	        SELECT sc.id, sc.subreddit, sc.include_nsfw, sc.sort, sc.restrict_subreddit
+	        FROM subreddit_configuration sc
+	        WHERE sc.configuration_id = c.id
+	    ) sc
+	) as subreddits,
+    (
+        SELECT COALESCE(jsonb_agg(r), '[]')
+        FROM (
+            SELECT r.id, r.address
+            FROM recipients r
+            WHERE r.configuration_id = c.id
+        ) r
+    ) as recipients
 FROM
     configuration c
-JOIN
-	subreddit_configuration sc ON c.id = sc.configuration_id
-LEFT JOIN
-    recipients r ON c.id = r.configuration_id
+ORDER BY c.id
 `
 
 func (h *Handle) ListSchedules(ctx context.Context, in *ListSchedulesInput) (*ListSchedulesOutput, error) {
-	var sb strings.Builder
-	sb.WriteString(listSchedulesQuery)
-	args := pgx.NamedArgs{}
-
-	if in.OwnerID != 0 {
-		sb.WriteString(" WHERE c.owner_id = @owner_id")
-		args["owner_id"] = in.OwnerID
-	}
-
-	sb.WriteString(" ORDER BY c.id;")
-
-	rows, err := h.db.Query(ctx, sb.String(), args)
+	rows, err := h.db.Query(ctx, listSchedulesQuery)
 	if err != nil {
 		return nil, err
 	}
@@ -349,54 +314,26 @@ func (h *Handle) ListSchedules(ctx context.Context, in *ListSchedulesInput) (*Li
 		return nil, err
 	}
 
-	if len(dbModels) == 0 {
-		return &ListSchedulesOutput{}, nil
-	}
+	var schedules = make([]*Schedule, 0, len(dbModels))
 
-	schedulesMap := make(map[int64]*Schedule)
-	subredditSets := make(map[int64]map[int64]struct{})
-	recipientSets := make(map[int64]map[int64]struct{})
-
-	for _, m := range dbModels {
-		if _, ok := schedulesMap[m.ID]; !ok {
-			schedulesMap[m.ID] = &Schedule{
-				ID:         m.ID,
-				Keyword:    m.Keyword,
-				Schedule:   m.Schedule,
-				Recipients: []*Recipient{},
-				Subreddits: []*Subreddit{},
-			}
-			subredditSets[m.ID] = make(map[int64]struct{})
-			recipientSets[m.ID] = make(map[int64]struct{})
+	for _, model := range dbModels {
+		var subreddits []*Subreddit
+		if err = json.Unmarshal(model.Subreddits, &subreddits); err != nil {
+			return nil, err
 		}
 
-		schedule := schedulesMap[m.ID]
-
-		if _, ok := subredditSets[m.ID][m.SubredditID]; !ok {
-			schedule.Subreddits = append(schedule.Subreddits, &Subreddit{
-				ID:                m.SubredditID,
-				Name:              m.Subreddit,
-				IncludeNSFW:       m.IncludeNSFW,
-				Sort:              m.Sort,
-				RestrictSubreddit: m.RestrictSubreddit,
-			})
-			subredditSets[m.ID][m.SubredditID] = struct{}{}
+		var recipients []*Recipient
+		if err = json.Unmarshal(model.Recipients, &recipients); err != nil {
+			return nil, err
 		}
 
-		if m.RecipientID.Valid {
-			if _, ok := recipientSets[m.ID][m.RecipientID.Int64]; !ok {
-				schedule.Recipients = append(schedule.Recipients, &Recipient{
-					ID:      m.RecipientID.Int64,
-					Address: m.Address,
-				})
-				recipientSets[m.ID][m.RecipientID.Int64] = struct{}{}
-			}
-		}
-	}
-
-	schedules := make([]*Schedule, 0, len(schedulesMap))
-	for _, schedule := range schedulesMap {
-		schedules = append(schedules, schedule)
+		schedules = append(schedules, &Schedule{
+			ID:         model.ID,
+			Keyword:    model.Keyword,
+			Schedule:   model.Keyword,
+			Recipients: recipients,
+			Subreddits: subreddits,
+		})
 	}
 
 	return &ListSchedulesOutput{
@@ -404,177 +341,145 @@ func (h *Handle) ListSchedules(ctx context.Context, in *ListSchedulesInput) (*Li
 	}, nil
 }
 
+const updateScheduleQ = `
+WITH input_data AS (
+    SELECT 
+        $1::uuid AS cfg_id,
+        $2::text AS keyword,
+        $3::text AS schedule,
+        $4::jsonb AS subreddits,
+        $5::jsonb AS recipients
+),
+update_configuration AS (
+    UPDATE configuration 
+    SET keyword = (SELECT keyword FROM input_data),
+        schedule = (SELECT schedule FROM input_data)
+    WHERE id = (SELECT cfg_id FROM input_data)
+),
+delete_subreddits AS (
+    DELETE FROM subreddit_configuration
+    WHERE configuration_id = (SELECT cfg_id FROM input_data)
+    AND id NOT IN (SELECT (jsonb_array_elements(subreddits)->>'id')::uuid FROM input_data)
+),
+upsert_subreddits AS (
+    INSERT INTO subreddit_configuration (id, configuration_id, subreddit, include_nsfw, sort, restrict_subreddit)
+    SELECT 
+        (e->>'id')::uuid, (SELECT cfg_id FROM input_data), e->>'name', 
+        (e->>'include_nsfw')::bool, e->>'sort', (e->>'restrict_subreddit')::bool
+    FROM input_data, jsonb_array_elements(subreddits) AS e
+    ON CONFLICT (id) DO UPDATE SET
+        subreddit = EXCLUDED.subreddit,
+        include_nsfw = EXCLUDED.include_nsfw,
+        sort = EXCLUDED.sort,
+        restrict_subreddit = EXCLUDED.restrict_subreddit
+),
+delete_recipients AS (
+    DELETE FROM recipients
+    WHERE configuration_id = (SELECT cfg_id FROM input_data)
+    AND id NOT IN (SELECT (jsonb_array_elements(recipients)->>'id')::uuid FROM input_data)
+)
+INSERT INTO recipients (id, configuration_id, address)
+SELECT (e->>'id')::uuid, (SELECT cfg_id FROM input_data), e->>'address'
+FROM input_data, jsonb_array_elements(recipients) AS e
+ON CONFLICT (id) DO UPDATE SET address = EXCLUDED.address;
+`
+
 func (h *Handle) UpdateSchedule(ctx context.Context, in *UpdateScheduleInput) (*UpdateScheduleOutput, error) {
-	tx, err := h.db.BeginTx(ctx, pgx.TxOptions{})
+	subreddits, err := json.Marshal(in.Subreddits)
 	if err != nil {
 		return nil, err
 	}
-	defer func() {
-		_ = tx.Rollback(ctx)
-	}()
 
-	if err = h.updateConfiguration(ctx, tx, in); err != nil {
+	recipients, err := json.Marshal(in.Recipients)
+	if err != nil {
 		return nil, err
 	}
 
-	if err = h.syncSubreddits(ctx, tx, in.ID, in.Subreddits); err != nil {
-		return nil, err
-	}
-
-	if err = h.syncRecipients(ctx, tx, in.ID, in.Recipients); err != nil {
-		return nil, err
-	}
-
-	if err = tx.Commit(ctx); err != nil {
+	if _, err = h.db.Exec(
+		ctx,
+		updateScheduleQ,
+		in.ID,
+		in.Keyword,
+		in.Schedule,
+		subreddits,
+		recipients,
+	); err != nil {
 		return nil, err
 	}
 
 	return &UpdateScheduleOutput{}, nil
 }
 
-const updateConfigurationQuery = `
-UPDATE configuration
-SET keyword = @keyword, schedule = @schedule
-WHERE id = @id
-`
+const queuePostsInsertQ = `INSERT INTO posts (id, configuration_id, data) VALUES (@id, @configuration_id, @data)`
 
-func (h *Handle) updateConfiguration(ctx context.Context, tx pgx.Tx, in *UpdateScheduleInput) error {
-	args := pgx.NamedArgs{
-		"id":       in.ID,
-		"keyword":  in.Keyword,
-		"schedule": in.Schedule,
-	}
-	_, err := tx.Exec(ctx, updateConfigurationQuery, args)
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-func (h *Handle) syncSubreddits(ctx context.Context, tx pgx.Tx, configurationID int64, subreddits []*Subreddit) error {
-	const getQ = `SELECT id FROM subreddit_configuration WHERE configuration_id = @configuration_id;`
-	rows, err := tx.Query(ctx, getQ, pgx.NamedArgs{"configuration_id": configurationID})
-	if err != nil {
-		return err
-	}
-
-	existingIDs, err := pgx.CollectRows(rows, pgx.RowTo[int64])
-	if err != nil {
-		return fmt.Errorf("failed to collect existing subreddits: %w", err)
-	}
-
-	existingIDSet := make(map[int64]struct{}, len(existingIDs))
-	for _, id := range existingIDs {
-		existingIDSet[id] = struct{}{}
-	}
-
-	desiredIDSet := make(map[int64]struct{})
-	for _, sub := range subreddits {
-		desiredIDSet[sub.ID] = struct{}{}
-	}
-
-	var toDelete []int64
-	for id := range existingIDSet {
-		if _, found := desiredIDSet[id]; !found {
-			toDelete = append(toDelete, id)
-		}
-	}
-
+func (h *Handle) QueuePosts(ctx context.Context, in *QueuePostsInput) (*QueuePostsOutput, error) {
 	batch := &pgx.Batch{}
-	if len(toDelete) > 0 {
-		batch.Queue(`DELETE FROM subreddit_configuration WHERE id = ANY(@ids)`, pgx.NamedArgs{"ids": toDelete})
+
+	for _, post := range in.Items {
+		batch.Queue(
+			queuePostsInsertQ,
+			pgx.NamedArgs{
+				"id":               post.ID,
+				"configuration_id": post.ConfigurationID,
+				"data":             post.Post,
+			},
+		)
 	}
 
-	const upsertQ = `
-INSERT INTO subreddit_configuration (id, configuration_id, subreddit, include_nsfw, sort, restrict_subreddit)
-VALUES (@id, @configuration_id, @subreddit, @include_nsfw, @sort, @restrict_subreddit)
-ON CONFLICT (id) DO UPDATE SET
-                               subreddit = excluded.subreddit,
-                               include_nsfw = excluded.include_nsfw,
-                               sort = excluded.sort,
-                               restrict_subreddit = excluded.restrict_subreddit
-`
-
-	for _, sub := range subreddits {
-		args := pgx.NamedArgs{
-			"id":                 sub.ID,
-			"configuration_id":   configurationID,
-			"subreddit":          sub.Name,
-			"include_nsfw":       sub.IncludeNSFW,
-			"sort":               sub.Sort,
-			"restrict_subreddit": sub.RestrictSubreddit,
-		}
-		batch.Queue(upsertQ, args)
-	}
-
-	br := tx.SendBatch(ctx, batch)
-	defer func() {
-		_ = br.Close()
-	}()
-	for i := 0; i < batch.Len(); i++ {
-		if _, err = br.Exec(); err != nil {
-			return fmt.Errorf("error in subrredit sync batch operation: %w", err)
-		}
-	}
-
-	return nil
-}
-
-func (h *Handle) syncRecipients(ctx context.Context, tx pgx.Tx, configurationID int64, recipients []*Recipient) error {
-	const getQ = `SELECT id FROM recipients WHERE configuration_id = @configuration_id;`
-	rows, err := tx.Query(ctx, getQ, pgx.NamedArgs{"configuration_id": configurationID})
-	if err != nil {
-		return err
-	}
-
-	existingIDs, err := pgx.CollectRows(rows, pgx.RowTo[int64])
-	if err != nil {
-		return fmt.Errorf("failed to collect existing recipients: %w", err)
-	}
-
-	desiredIDSet := make(map[int64]struct{}, len(recipients))
-	for _, id := range existingIDs {
-		desiredIDSet[id] = struct{}{}
-	}
-
-	var toDelete []int64
-	for _, id := range existingIDs {
-		if _, found := desiredIDSet[id]; !found {
-			toDelete = append(toDelete, id)
-		}
-	}
-
-	batch := &pgx.Batch{}
-	if len(toDelete) > 0 {
-		batch.Queue(`DELETE FROM recipients WHERE id = ANY(@ids);`, pgx.NamedArgs{"ids": toDelete})
-	}
-
-	const upsertQ = `
-INSERT INTO recipients (id, configuration_id, address)
-VALUES (@id, @configuration_id, @address)
-ON CONFLICT (id) DO UPDATE SET
-                               address = EXCLUDED.address
-`
-
-	for _, recipient := range recipients {
-		args := pgx.NamedArgs{
-			"id":               recipient.ID,
-			"configuration_id": configurationID,
-			"address":          recipient.Address,
-		}
-		batch.Queue(upsertQ, args)
-	}
-
-	br := tx.SendBatch(ctx, batch)
+	br := h.db.SendBatch(ctx, batch)
 	defer func() {
 		_ = br.Close()
 	}()
 
 	for i := 0; i < batch.Len(); i++ {
-		if _, err = br.Exec(); err != nil {
-			return fmt.Errorf("error in recipient sync batch operation: %w", err)
+		if _, err := br.Exec(); err != nil {
+			return nil, fmt.Errorf("error in post queue batch operation: %w", err)
 		}
 	}
 
-	return nil
+	return &QueuePostsOutput{}, nil
+}
+
+const getPostsSelectQ = `SELECT id, configuration_id, data FROM posts WHERE configuration_id = @configuration_id`
+
+func (h *Handle) GetPosts(ctx context.Context, in *GetPostsInput) (*GetPostsOutput, error) {
+	rows, err := h.db.Query(ctx, getPostsSelectQ, pgx.NamedArgs{"configuration_id": in.ConfigurationID})
+	if err != nil {
+		return nil, err
+	}
+
+	type postModel struct {
+		ID              uuid.UUID `db:"id"`
+		ConfigurationID uuid.UUID `db:"configuration_id"`
+		Data            []byte    `db:"data"`
+	}
+
+	posts, err := pgx.CollectRows(rows, pgx.RowToStructByName[postModel])
+	if err != nil {
+		return nil, err
+	}
+
+	var items = make([]QueueItem, 0, len(posts))
+	for _, post := range posts {
+		items = append(items, QueueItem{
+			ID:              post.ID,
+			ConfigurationID: post.ConfigurationID,
+			Post:            post.Data,
+		})
+	}
+
+	return &GetPostsOutput{
+		Items: items,
+	}, nil
+}
+
+const popPostsDeleteQ = `DELETE FROM posts WHERE configuration_id = @configuration_id`
+
+func (h *Handle) PopPosts(ctx context.Context, in *PopPostsInput) (*PopPostsOutput, error) {
+	_, err := h.db.Exec(ctx, popPostsDeleteQ, pgx.NamedArgs{"configuration_id": in.ConfigurationID})
+	if err != nil {
+		return nil, err
+	}
+
+	return &PopPostsOutput{}, nil
 }

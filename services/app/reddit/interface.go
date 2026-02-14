@@ -1,19 +1,22 @@
 package reddit
 
-import "time"
+import (
+	"github.com/google/uuid"
+	"time"
+)
 
 type (
 	Recipient struct {
-		ID      int64  `json:"id"`
-		Address string `json:"address" validate:"required,email"`
+		ID      uuid.UUID `json:"id"`
+		Address string    `json:"address" validate:"required,email"`
 	}
 
 	Subreddit struct {
-		ID                int64  `json:"id"`
-		Subreddit         string `json:"subreddit" validate:"required"`
-		IncludeNSFW       bool   `json:"includeNSFW"`
-		Sort              string `json:"sort"`
-		RestrictSubreddit bool   `json:"restrictSubreddit"`
+		ID                uuid.UUID `json:"id"`
+		Subreddit         string    `json:"subreddit" validate:"required"`
+		IncludeNSFW       bool      `json:"includeNSFW"`
+		Sort              string    `json:"sort"`
+		RestrictSubreddit bool      `json:"restrictSubreddit"`
 	}
 
 	CreateScheduleInput struct {
@@ -21,25 +24,23 @@ type (
 		Subreddits []*Subreddit `json:"subreddits" validate:"required,min=1,max=10"`
 		Schedule   string       `json:"schedule" validate:"cron"` // Cron string
 		Recipients []*Recipient `json:"recipients" validate:"required,min=1,max=10"`
-		OwnerID    int64        `json:"ownerID"`
 	}
 
 	CreateScheduleOutput struct {
-		Created    bool  `json:"created"`
-		ScheduleID int64 `json:"scheduleID,omitempty"`
+		Created    bool      `json:"created"`
+		ScheduleID uuid.UUID `json:"scheduleID,omitempty"`
 	}
 
 	GetScheduleInput struct {
-		ScheduleID int64 `json:"scheduleID"`
+		ScheduleID uuid.UUID `json:"scheduleID"`
 	}
 
 	GetScheduleOutput struct {
-		ID         int64        `json:"id"`
+		ID         uuid.UUID    `json:"id"`
 		Keyword    string       `json:"keyword"`
 		Subreddits []*Subreddit `json:"subreddits"`
 		Schedule   string       `json:"schedule"` // Cron string
 		Recipients []*Recipient `json:"recipients"`
-		OwnerID    int64        `json:"ownerID"`
 		// --- Data from temporal
 		NextActionTimes     []time.Time `json:"nextActionTimes"`
 		Paused              bool        `json:"paused"`
@@ -47,7 +48,7 @@ type (
 	}
 
 	UpdateScheduleInput struct {
-		ID         int64        `json:"id"`
+		ID         uuid.UUID    `json:"id"`
 		Keyword    string       `json:"keyword" validate:"required"`
 		Subreddits []*Subreddit `json:"subreddits" validate:"required,min=1,max=10"`
 		Schedule   string       `json:"schedule"` // Cron string
@@ -58,23 +59,21 @@ type (
 	}
 
 	DeleteScheduleInput struct {
-		ID int64 `json:"id"`
+		ID uuid.UUID `json:"id"`
 	}
 
 	DeleteScheduleOutput struct {
 	}
 
 	Schedule struct {
-		ID         int64        `json:"id"`
+		ID         uuid.UUID    `json:"id"`
 		Keyword    string       `json:"keyword"`
 		Subreddits []*Subreddit `json:"subreddits"`
 		Schedule   string       `json:"schedule"` // Cron string
 		Recipients []*Recipient `json:"recipients"`
-		OwnerID    int64        `json:"ownerID"`
 	}
 
 	ListSchedulesInput struct {
-		OwnerID int64 `json:"ownerID"`
 	}
 
 	ListSchedulesOutput struct {

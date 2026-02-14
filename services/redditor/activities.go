@@ -2,45 +2,44 @@ package redditor
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
-	"github.com/forbiddencoding/reddit-post-notifier/common/config"
 	"github.com/forbiddencoding/reddit-post-notifier/common/persistence"
 	"github.com/forbiddencoding/reddit-post-notifier/common/reddit"
+	"github.com/google/uuid"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/temporal"
 	"time"
 )
 
-type Activities struct {
-	client *reddit.Client
+type activities struct {
+	client      *reddit.Client
+	persistence persistence.Persistence
 }
 
-func NewActivities(ctx context.Context, conf *config.Config) (*Activities, error) {
-	client, err := reddit.New(ctx, conf.Reddit.ClientID, conf.Reddit.ClientSecret, conf.Reddit.UserAgent)
-	if err != nil {
-		return nil, err
-	}
-
-	return &Activities{
-		client: client,
+func newActivities(persistence persistence.Persistence, client *reddit.Client) (*activities, error) {
+	return &activities{
+		persistence: persistence,
+		client:      client,
 	}, nil
 }
 
 type (
 	GetPostsInput struct {
-		Keyword   string                 `json:"keyword"`
-		Subreddit *persistence.Subreddit `json:"subreddit"`
+		ConfigurationID uuid.UUID              `json:"configuration_id"`
+		Keyword         string                 `json:"keyword"`
+		Subreddit       *persistence.Subreddit `json:"subreddit"`
 	}
 
 	GetPostsOutput struct {
-		Posts  []reddit.Post `json:"posts"`
-		Before string        `json:"before,omitzero"`
+		HasMore bool   `json:"has_more"`
+		Before  string `json:"before,omitzero"`
 	}
 )
 
 const GetPostsActivityName = "get_posts"
 
-func (a *Activities) GetPosts(ctx context.Context, in *GetPostsInput) (*GetPostsOutput, error) {
+func (a *activities) GetPosts(ctx context.Context, in *GetPostsInput) (*GetPostsOutput, error) {
 	logger := activity.GetLogger(ctx)
 	logger.Info("GetPosts started", "subreddit", in.Subreddit.Name, "keyword", in.Keyword)
 
@@ -56,26 +55,69 @@ func (a *Activities) GetPosts(ctx context.Context, in *GetPostsInput) (*GetPosts
 		},
 	)
 	if err != nil {
-		var rLErr reddit.RateLimitError
-		if errors.As(err, &rLErr) {
-			logger.Info("GetPosts hit rate limit")
+		if target, ok := errors.AsType[reddit.RateLimitError](err); ok {
+			logger.Info("hit rate limit")
 
-			errOpts := temporal.ApplicationErrorOptions{
+			opts := temporal.ApplicationErrorOptions{
 				Cause:        err,
 				NonRetryable: false,
 			}
 
-			if delay := rLErr.GetReset(); delay > 0 {
-				errOpts.NextRetryDelay = time.Duration(delay) * time.Second
+			if delay := target.GetReset(); delay > 0 {
+				opts.NextRetryDelay = time.Duration(delay) * time.Second
 			}
 
-			return nil, temporal.NewApplicationErrorWithOptions("rate limit exceeded", "api", errOpts)
+			return nil, temporal.NewApplicationErrorWithOptions("rate limit exceeded", "api", opts)
 		}
 		return nil, err
 	}
 
+	items := make([]persistence.QueueItem, 0, len(res.Posts))
+	for _, p := range res.Posts {
+		id, err := uuid.NewV7()
+		if err != nil {
+			return nil, err
+		}
+
+		createdTime := time.Unix(int64(p.CreatedUTC), 0)
+
+		post, err := json.Marshal(persistence.Post{
+			ID:        p.ID,
+			Title:     p.Title,
+			URL:       p.URL,
+			Subreddit: p.Subreddit,
+			NSFW:      p.NSFW,
+			Spoiler:   p.Spoiler,
+			Ups:       p.Ups,
+			Downs:     p.Downs,
+			Thumbnail: p.SanitizeThumbnail(),
+			Created:   createdTime.Format(time.RFC822),
+			Permalink: p.GetPermalink(),
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		items = append(items, persistence.QueueItem{
+			ID:              id,
+			ConfigurationID: in.ConfigurationID,
+			Post:            post,
+			CreatedTime:     createdTime,
+		})
+	}
+
+	if len(items) == 0 {
+		return &GetPostsOutput{}, nil
+	}
+
+	if _, err = a.persistence.QueuePosts(ctx, &persistence.QueuePostsInput{
+		Items: items,
+	}); err != nil {
+		return nil, err
+	}
+
 	return &GetPostsOutput{
-		Posts:  res.Posts,
-		Before: res.Before,
+		HasMore: len(res.Posts) > 0,
+		Before:  res.Before,
 	}, nil
 }

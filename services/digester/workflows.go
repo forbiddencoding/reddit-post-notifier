@@ -2,9 +2,8 @@ package digester
 
 import (
 	"fmt"
-	"github.com/forbiddencoding/reddit-post-notifier/common/persistence"
-	redditSDK "github.com/forbiddencoding/reddit-post-notifier/common/reddit"
 	"github.com/forbiddencoding/reddit-post-notifier/services/redditor"
+	"github.com/google/uuid"
 	"go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
@@ -13,7 +12,7 @@ import (
 
 type (
 	DigestWorkflowInput struct {
-		ID int64 `json:"id"`
+		ID uuid.UUID `json:"id"`
 	}
 
 	DigestWorkflowOutput struct {
@@ -47,11 +46,6 @@ func DigestWorkflow(ctx workflow.Context, in *DigestWorkflowInput) (*DigestWorkf
 		return nil, err
 	}
 
-	var (
-		subreddits = make([]*persistence.Subreddit, 0, len(configuration.Subreddits))
-		posts      []redditSDK.Post
-	)
-
 	for i := 0; i < len(configuration.Subreddits); i++ {
 		subreddit := configuration.Subreddits[i]
 
@@ -70,21 +64,16 @@ func DigestWorkflow(ctx workflow.Context, in *DigestWorkflowInput) (*DigestWorkf
 
 		var result redditor.PostWorkflowOutput
 		err := workflow.ExecuteChildWorkflow(childCtx, redditor.PostWorkflow, &redditor.PostWorkflowInput{
-			Keyword:   configuration.Keyword,
-			Subreddit: subreddit,
+			ConfigurationID: in.ID,
+			Keyword:         configuration.Keyword,
+			Subreddit:       subreddit,
 		}).Get(ctx, &result)
 		if err != nil {
 			logger.Error("Failed to execute PostWorkflow", "error", err, "subreddit", subreddit.Name)
 			return nil, err
 		}
 
-		if len(result.Posts) > 0 {
-			posts = append(posts, result.Posts...)
-			subreddits = append(subreddits, &persistence.Subreddit{
-				ID:     subreddit.ID,
-				Before: result.Subreddit.Before,
-			})
-		}
+		configuration.Subreddits[i].Before = result.Before
 	}
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
@@ -99,16 +88,16 @@ func DigestWorkflow(ctx workflow.Context, in *DigestWorkflowInput) (*DigestWorkf
 	})
 
 	if err := workflow.ExecuteActivity(ctx, SendNotificationActivityName, &SendNotificationInput{
-		Keyword:    configuration.Keyword,
-		Posts:      posts,
-		Recipients: configuration.Recipients,
+		ConfigurationID: in.ID,
+		Keyword:         configuration.Keyword,
+		Recipients:      configuration.Recipients,
 	}).Get(ctx, nil); err != nil {
 		logger.Error("Failed to send notification", "error", err)
 		return nil, err
 	}
 
 	if err := workflow.ExecuteActivity(ctx, UpdateStateActivityName, &UpdateStateInput{
-		Subreddits: subreddits,
+		Subreddits: configuration.Subreddits,
 	}).Get(ctx, nil); err != nil {
 		logger.Error("Failed to update state", "error", err)
 		return nil, err

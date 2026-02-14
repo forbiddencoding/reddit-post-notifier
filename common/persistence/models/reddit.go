@@ -1,47 +1,35 @@
 package models
 
 import (
-	"github.com/jackc/pgx/v5/pgtype"
+	"encoding/json"
+	"github.com/google/uuid"
 )
 
 type (
 	LoadConfigurationAndState struct {
-		ID                int64       `db:"id"`
-		SubredditID       int64       `db:"subreddit_id"`
-		Subreddit         string      `db:"subreddit"`
-		IncludeNSFW       bool        `db:"include_nsfw"`
-		Sort              string      `db:"sort"`
-		RestrictSubreddit bool        `db:"restrict_subreddit"`
-		Keyword           string      `db:"keyword"`
-		Before            pgtype.Text `db:"before"`
-		RecipientID       pgtype.Int8 `db:"recipient_id"`
-		Address           string      `db:"address"`
+		Keyword    string          `db:"keyword"`
+		Subreddits json.RawMessage `db:"subreddits"`
+		Recipients json.RawMessage `db:"recipients"`
 	}
 
 	GetSchedule struct {
-		ID                int64       `db:"id"`
-		SubredditID       int64       `db:"subreddit_id"`
-		Subreddit         string      `db:"subreddit"`
-		IncludeNSFW       bool        `db:"include_nsfw"`
-		Sort              string      `db:"sort"`
-		RestrictSubreddit bool        `db:"restrict_subreddit"`
-		Keyword           string      `db:"keyword"`
-		Schedule          string      `db:"schedule"`
-		RecipientID       pgtype.Int8 `db:"recipient_id"`
-		Address           string      `db:"address"`
+		ID                uuid.UUID `db:"id"`
+		SubredditID       uuid.UUID `db:"subreddit_id"`
+		Subreddit         string    `db:"subreddit"`
+		IncludeNSFW       bool      `db:"include_nsfw"`
+		Sort              string    `db:"sort"`
+		RestrictSubreddit bool      `db:"restrict_subreddit"`
+		Keyword           string    `db:"keyword"`
+		Schedule          string    `db:"schedule"`
+		RecipientID       uuid.UUID `db:"recipient_id"`
+		Address           string    `db:"address"`
 	}
 
 	ListSchedulesModel struct {
-		ID                int64       `db:"id"`
-		OwnerID           int64       `db:"owner_id"`
-		SubredditID       int64       `db:"subreddit_id"`
-		Subreddit         string      `db:"subreddit"`
-		IncludeNSFW       bool        `db:"include_nsfw"`
-		Sort              string      `db:"sort"`
-		RestrictSubreddit bool        `db:"restrict_subreddit"`
-		Keyword           string      `db:"keyword"`
-		Schedule          string      `db:"schedule"`
-		RecipientID       pgtype.Int8 `db:"recipient_id"`
-		Address           string      `db:"address"`
+		ID         uuid.UUID       `db:"id"`
+		Keyword    string          `db:"keyword"`
+		Schedule   string          `db:"schedule"`
+		Subreddits json.RawMessage `db:"subreddits"`
+		Recipients json.RawMessage `db:"recipients"`
 	}
 )

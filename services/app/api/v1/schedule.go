@@ -5,9 +5,9 @@ import (
 	"github.com/forbiddencoding/reddit-post-notifier/services/app/reddit"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-playground/validator/v10"
+	"github.com/google/uuid"
 	"log/slog"
 	"net/http"
-	"strconv"
 	"time"
 )
 
@@ -45,7 +45,7 @@ func (h *ScheduleHandler) CreateSchedulePost() http.HandlerFunc {
 			Recipients []*recipient `json:"recipients" validate:"required,min=1,max=10"`
 		}
 		response struct {
-			ID int64 `json:"id"`
+			ID uuid.UUID `json:"id"`
 		}
 	)
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -99,7 +99,7 @@ func (h *ScheduleHandler) CreateSchedulePost() http.HandlerFunc {
 		if err = json.NewEncoder(w).Encode(response{
 			ID: res.ScheduleID,
 		}); err != nil {
-			slog.Error("failed to write response", err)
+			slog.Error("write response", slog.Any("error", err))
 		}
 	}
 }
@@ -107,25 +107,24 @@ func (h *ScheduleHandler) CreateSchedulePost() http.HandlerFunc {
 func (h *ScheduleHandler) GetScheduleGet() http.HandlerFunc {
 	type (
 		subreddit struct {
-			ID                int64  `json:"id"`
-			Subreddit         string `json:"subreddit" validate:"required"`
-			IncludeNSFW       bool   `json:"includeNSFW"`
-			Sort              string `json:"sort"`
-			RestrictSubreddit bool   `json:"restrictSubreddit"`
+			ID                uuid.UUID `json:"id"`
+			Subreddit         string    `json:"subreddit" validate:"required"`
+			IncludeNSFW       bool      `json:"includeNSFW"`
+			Sort              string    `json:"sort"`
+			RestrictSubreddit bool      `json:"restrictSubreddit"`
 		}
 
 		recipient struct {
-			ID      int64  `json:"id"`
-			Address string `json:"address" validate:"required,email"`
+			ID      uuid.UUID `json:"id"`
+			Address string    `json:"address" validate:"required,email"`
 		}
 
 		response struct {
-			ID                  int64        `json:"id"`
+			ID                  uuid.UUID    `json:"id"`
 			Keyword             string       `json:"keyword"`
 			Subreddits          []*subreddit `json:"subreddits"`
 			Schedule            string       `json:"schedule"`
 			Recipients          []*recipient `json:"recipients"`
-			OwnerID             int64        `json:"ownerID"`
 			NextActionTimes     []time.Time  `json:"nextActionTimes"`
 			Paused              bool         `json:"paused"`
 			LastExecutionStatus string       `json:"lastExecutionStatus"`
@@ -134,7 +133,7 @@ func (h *ScheduleHandler) GetScheduleGet() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 
-		id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+		id, err := uuid.Parse(chi.URLParam(r, "id"))
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -181,7 +180,6 @@ func (h *ScheduleHandler) GetScheduleGet() http.HandlerFunc {
 			Subreddits:          subreddits,
 			Schedule:            schedule.Schedule,
 			Recipients:          recipients,
-			OwnerID:             schedule.OwnerID,
 			NextActionTimes:     nextActionTimes,
 			Paused:              schedule.Paused,
 			LastExecutionStatus: schedule.LastExecutionStatus,
@@ -189,7 +187,7 @@ func (h *ScheduleHandler) GetScheduleGet() http.HandlerFunc {
 
 		w.Header().Set("Content-Type", "application/json")
 		if err = json.NewEncoder(w).Encode(res); err != nil {
-			slog.Error("failed to write response", err)
+			slog.Error("write response", slog.Any("error", err))
 		}
 	}
 }
@@ -198,7 +196,7 @@ func (h *ScheduleHandler) DeleteScheduleDelete() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 
-		id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+		id, err := uuid.Parse(chi.URLParam(r, "id"))
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -220,15 +218,15 @@ func (h *ScheduleHandler) DeleteScheduleDelete() http.HandlerFunc {
 func (h *ScheduleHandler) UpdateSchedulePut() http.HandlerFunc {
 	type (
 		subreddit struct {
-			ID                int64  `json:"id,omitzero"`
-			Subreddit         string `json:"subreddit" validate:"required"`
-			IncludeNSFW       bool   `json:"includeNSFW"`
-			Sort              string `json:"sort"`
-			RestrictSubreddit bool   `json:"restrictSubreddit"`
+			ID                uuid.UUID `json:"id,omitempty"`
+			Subreddit         string    `json:"subreddit" validate:"required"`
+			IncludeNSFW       bool      `json:"includeNSFW"`
+			Sort              string    `json:"sort"`
+			RestrictSubreddit bool      `json:"restrictSubreddit"`
 		}
 		recipient struct {
-			ID      int64  `json:"id"`
-			Address string `json:"address" validate:"required,email"`
+			ID      uuid.UUID `json:"id"`
+			Address string    `json:"address" validate:"required,email"`
 		}
 
 		request struct {
@@ -241,7 +239,7 @@ func (h *ScheduleHandler) UpdateSchedulePut() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 
-		id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+		id, err := uuid.Parse(chi.URLParam(r, "id"))
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -301,25 +299,24 @@ func (h *ScheduleHandler) UpdateSchedulePut() http.HandlerFunc {
 func (h *ScheduleHandler) ListSchedulesGet() http.HandlerFunc {
 	type (
 		subreddit struct {
-			ID                int64  `json:"id"`
-			Subreddit         string `json:"subreddit" validate:"required"`
-			IncludeNSFW       bool   `json:"includeNSFW"`
-			Sort              string `json:"sort"`
-			RestrictSubreddit bool   `json:"restrictSubreddit"`
+			ID                uuid.UUID `json:"id"`
+			Subreddit         string    `json:"subreddit" validate:"required"`
+			IncludeNSFW       bool      `json:"includeNSFW"`
+			Sort              string    `json:"sort"`
+			RestrictSubreddit bool      `json:"restrictSubreddit"`
 		}
 
 		recipient struct {
-			ID      int64  `json:"id"`
-			Address string `json:"address" validate:"required,email"`
+			ID      uuid.UUID `json:"id"`
+			Address string    `json:"address" validate:"required,email"`
 		}
 
 		scheduleForList struct {
-			ID         int64        `json:"id"`
+			ID         uuid.UUID    `json:"id"`
 			Keyword    string       `json:"keyword"`
 			Subreddits []*subreddit `json:"subreddits"`
 			Schedule   string       `json:"schedule"`
 			Recipients []*recipient `json:"recipients"`
-			OwnerID    int64        `json:"ownerID"`
 		}
 
 		response struct {
@@ -365,7 +362,6 @@ func (h *ScheduleHandler) ListSchedulesGet() http.HandlerFunc {
 				Subreddits: subreddits,
 				Schedule:   sched.Schedule,
 				Recipients: recipients,
-				OwnerID:    sched.OwnerID,
 			})
 		}
 
@@ -374,7 +370,7 @@ func (h *ScheduleHandler) ListSchedulesGet() http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		if err = json.NewEncoder(w).Encode(res); err != nil {
-			slog.Error("failed to write response", err)
+			slog.Error("write response", slog.Any("error", err))
 		}
 	}
 }

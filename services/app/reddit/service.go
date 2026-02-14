@@ -6,7 +6,7 @@ import (
 	"github.com/forbiddencoding/reddit-post-notifier/common/persistence"
 	"github.com/forbiddencoding/reddit-post-notifier/services/digester"
 	"github.com/go-playground/validator/v10"
-	"github.com/sony/sonyflake/v2"
+	"github.com/google/uuid"
 	"go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/client"
 	"sort"
@@ -25,7 +25,6 @@ type (
 	Service struct {
 		db             persistence.Persistence
 		temporalClient client.Client
-		sonyflake      *sonyflake.Sonyflake
 		validator      *validator.Validate
 	}
 )
@@ -35,13 +34,11 @@ var _ Servicer = (*Service)(nil)
 func NewService(
 	db persistence.Persistence,
 	temporalClient client.Client,
-	sonyflake *sonyflake.Sonyflake,
 	validator *validator.Validate,
 ) (Servicer, error) {
 	return &Service{
 		db:             db,
 		temporalClient: temporalClient,
-		sonyflake:      sonyflake,
 		validator:      validator,
 	}, nil
 }
@@ -51,9 +48,9 @@ func (s *Service) CreateSchedule(ctx context.Context, in *CreateScheduleInput) (
 		return nil, err
 	}
 
-	id, err := s.sonyflake.NextID()
+	id, err := uuid.NewV7()
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate ID: %w", err)
+		return nil, fmt.Errorf("generate ID: %w", err)
 	}
 
 	var (
@@ -62,9 +59,9 @@ func (s *Service) CreateSchedule(ctx context.Context, in *CreateScheduleInput) (
 	)
 
 	for _, recipient := range in.Recipients {
-		recipientID, err := s.sonyflake.NextID()
+		recipientID, err := uuid.NewV7()
 		if err != nil {
-			return nil, fmt.Errorf("failed to generate ID: %w", err)
+			return nil, fmt.Errorf("generate recipient ID: %w", err)
 		}
 
 		recipients = append(recipients, &persistence.CreateScheduleRecipient{
@@ -74,9 +71,9 @@ func (s *Service) CreateSchedule(ctx context.Context, in *CreateScheduleInput) (
 	}
 
 	for _, sub := range in.Subreddits {
-		subredditID, err := s.sonyflake.NextID()
+		subredditID, err := uuid.NewV7()
 		if err != nil {
-			return nil, fmt.Errorf("failed to generate ID: %w", err)
+			return nil, fmt.Errorf("generate Subreddit ID: %w", err)
 		}
 
 		subreddit := strings.TrimPrefix(sub.Subreddit, "r/")
@@ -94,7 +91,6 @@ func (s *Service) CreateSchedule(ctx context.Context, in *CreateScheduleInput) (
 		ID:         id,
 		Keyword:    in.Keyword,
 		Schedule:   in.Schedule,
-		OwnerID:    0,
 		Recipients: recipients,
 		Subreddits: subreddits,
 	})
@@ -103,7 +99,7 @@ func (s *Service) CreateSchedule(ctx context.Context, in *CreateScheduleInput) (
 	}
 
 	_, err = s.temporalClient.ScheduleClient().Create(ctx, client.ScheduleOptions{
-		ID: fmt.Sprintf("reddit_posts::%d", id),
+		ID: fmt.Sprintf("reddit_posts::%s", id.String()),
 		Action: &client.ScheduleWorkflowAction{
 			Workflow: digester.DigestWorkflow,
 			Args: []any{&digester.DigestWorkflowInput{
@@ -204,11 +200,11 @@ func (s *Service) UpdateSchedule(ctx context.Context, in *UpdateScheduleInput) (
 	)
 
 	for _, recipient := range in.Recipients {
-		id, err := s.sonyflake.NextID()
+		id, err := uuid.NewV7()
 		if err != nil {
-			return nil, fmt.Errorf("failed to generate ID: %w", err)
+			return nil, fmt.Errorf("generate recipient ID: %w", err)
 		}
-		if recipient.ID != 0 {
+		if recipient.ID != uuid.Nil {
 			id = recipient.ID
 		}
 
@@ -219,11 +215,11 @@ func (s *Service) UpdateSchedule(ctx context.Context, in *UpdateScheduleInput) (
 	}
 
 	for _, sub := range in.Subreddits {
-		id, err := s.sonyflake.NextID()
+		id, err := uuid.NewV7()
 		if err != nil {
-			return nil, fmt.Errorf("failed to generate ID: %w", err)
+			return nil, fmt.Errorf("generate Subreddit ID: %w", err)
 		}
-		if sub.ID != 0 {
+		if sub.ID != uuid.Nil {
 			id = sub.ID
 		}
 
@@ -292,9 +288,7 @@ func (s *Service) DeleteSchedule(ctx context.Context, in *DeleteScheduleInput) (
 }
 
 func (s *Service) ListSchedules(ctx context.Context, in *ListSchedulesInput) (*ListSchedulesOutput, error) {
-	res, err := s.db.ListSchedules(ctx, &persistence.ListSchedulesInput{
-		OwnerID: in.OwnerID,
-	})
+	res, err := s.db.ListSchedules(ctx, &persistence.ListSchedulesInput{})
 	if err != nil {
 		return nil, err
 	}
@@ -326,12 +320,11 @@ func (s *Service) ListSchedules(ctx context.Context, in *ListSchedulesInput) (*L
 			Subreddits: subreddits,
 			Schedule:   schedule.Schedule,
 			Recipients: recipients,
-			OwnerID:    schedule.OwnerID,
 		})
 	}
 
 	sort.Slice(schedules, func(i, j int) bool {
-		return schedules[i].ID > schedules[j].ID
+		return schedules[i].ID.Time() > schedules[j].ID.Time()
 	})
 
 	return &ListSchedulesOutput{

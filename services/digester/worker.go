@@ -40,7 +40,7 @@ func (w *Worker) Start(ctx context.Context) error {
 	return w.worker.Run(temporalx.WorkerInterruptFromCtxChan(ctx))
 }
 
-func (w *Worker) Close(ctx context.Context) error {
+func (w *Worker) Close() error {
 	w.worker.Stop()
 	return nil
 }

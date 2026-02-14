@@ -162,7 +162,7 @@ gen
 !LICENSE
 !NOTICE
 
-# !Makefile
+!Makefile
 
 # ...even if they are in subdirectories
 !*/
@@ -190,3 +190,6 @@ tags
 
 ./data/sqlite/
 ./config/
+
+.env
+!.env.example
