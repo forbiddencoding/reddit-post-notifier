@@ -54,10 +54,7 @@ And click on `Create`. Make sure to store the App Password somewhere safe, you w
 #### 4. Configure the Application
 
 Create a `.env` file in the root of the repository based on the `.env.example` file and populate the missing keys.
-
-By default, the application expects a `config.yml` file in the `config/` directory. Copy the contents of the
-`config/example.config.yml` file into a new `config.yml` file and populate the missing values with the Reddit App
-Credentials and Google Mail App Password from steps 2. and 3.
+Use the Reddit App Credentials and Google Mail App Password from steps 2. and 3.
 
 * The `RPN_REDDIT_USERAGENT` value has to be formatted like this:
   `go:<GITHUB_URL_OF_THE_PROJECT>:v<SEMANTIC_VERSION> (by /u/<YOUR_REDDIT_USERNAME>)`
